@@ -23,6 +23,7 @@ export interface TokenUsage {
 
 export interface ProcessedItem {
   id: string;
+  timestamp: number; // For FIFO sorting
   original: TriviaFact;
   optimized: TriviaFact | null;
   score: number | null;

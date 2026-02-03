@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Play, Sparkles, RefreshCw, Copy, Layers, Globe, ChevronLeft, ChevronRight, Settings, Download, Trash2, StopCircle, FileText, Zap, CheckSquare, Square, Clock, ListChecks, CheckCircle } from 'lucide-react';
+import { Play, Sparkles, RefreshCw, Copy, Layers, Globe, ChevronLeft, ChevronRight, Settings, Download, Trash2, StopCircle, FileText, Zap, CheckSquare, Square, Clock, ListChecks, CheckCircle, Hourglass } from 'lucide-react';
 import { AgentLog, ProcessedItem, TriviaFact, TokenUsage } from './types';
 import { AgentVisualizer } from './components/AgentVisualizer';
 import { ResultCard } from './components/ResultCard';
@@ -21,6 +21,7 @@ const DEFAULT_INPUT = `[
 ]`;
 
 const ITEMS_PER_PAGE = 10;
+const AVG_PROCESSING_TIME = 8000; // ms
 
 // Simple success sound using Web Audio API
 const playSuccessSound = () => {
@@ -122,8 +123,9 @@ function App() {
   // --------------------------------------------------------
   // WORKER LOGIC
   // --------------------------------------------------------
-  const processItemWorker = async (itemId: string, itemOriginal: TriviaFact, actionType: string = 'DEFAULT', feedback: string = '', currentOptimized: TriviaFact | null = null) => {
-    let itemTokenUsage: TokenUsage = { promptTokens: 0, candidatesTokens: 0, totalTokens: 0, estimatedCost: 0 };
+  const processItemWorker = async (itemId: string, itemOriginal: TriviaFact, actionType: string = 'DEFAULT', feedback: string = '', currentOptimized: TriviaFact | null = null, existingTokenStats: TokenUsage | undefined = undefined) => {
+    // Initialize with existing stats if any (Accumulation logic)
+    let itemTokenUsage: TokenUsage = existingTokenStats ? { ...existingTokenStats } : { promptTokens: 0, candidatesTokens: 0, totalTokens: 0, estimatedCost: 0 };
     
     const trackUsage = (usage: TokenUsage) => {
        itemTokenUsage.promptTokens += usage.promptTokens;
@@ -235,21 +237,22 @@ function App() {
             finalScore = critiqueResult.data.score;
             updateItemState(p => ({ ...p, tokenStats: itemTokenUsage }));
 
+            const fullFeedbackMsg = `Score: ${critiqueResult.data.score}\nFeedback: ${critiqueResult.data.feedback || "None"}`;
+
             if (critiqueResult.data.score >= 7) {
               placementApproved = true;
               currentFactString = newFact;
               currentAnswer = newAnswer;
-              updateLog(criticLogId, "success", `Approved! Score: ${finalScore}`, itemId);
+              updateLog(criticLogId, "success", `Approved! ${fullFeedbackMsg}`, itemId);
             } else {
                currentFeedback = critiqueResult.data.feedback || "";
-               const feedbackMsg = currentFeedback ? ` Feedback: "${currentFeedback}"` : "";
                
                if (attempts === MAX_ATTEMPTS) {
                    currentFactString = newFact;
                    currentAnswer = newAnswer;
-                   updateLog(criticLogId, "pending", `Max attempts reached.${feedbackMsg}`, itemId);
+                   updateLog(criticLogId, "pending", `Max attempts reached. ${fullFeedbackMsg}`, itemId);
                } else {
-                   updateLog(criticLogId, "retry", `Score: ${finalScore}.${feedbackMsg} Retrying...`, itemId);
+                   updateLog(criticLogId, "retry", `Retrying... ${fullFeedbackMsg}`, itemId);
                }
             }
           }
@@ -261,7 +264,10 @@ function App() {
       
       const genResult = await AgentService.generateRawLies(currentFactString, currentAnswer, itemOriginal.category, language);
       trackUsage(genResult.usage);
-      updateLog(genLogId, "success", `Created ${genResult.data.rawLies.length} options`, itemId);
+      
+      const rawLiesList = genResult.data.rawLies.map((l, i) => `${i+1}. ${l}`).join("\n");
+      updateLog(genLogId, "success", `Created ${genResult.data.rawLies.length} options:\n${rawLiesList}`, itemId);
+      
       updateItemState(p => ({ ...p, tokenStats: itemTokenUsage }));
 
       // --- EDITOR (The Trimmer) ---
@@ -288,7 +294,10 @@ function App() {
           tokenStats: itemTokenUsage,
           // Clear flags
           pendingAction: undefined,
-          userFeedback: undefined
+          userFeedback: undefined,
+          // Update timestamp only if it was a specific user action (reprocess/regenerate)
+          // This moves the item to the end of the FIFO list (treating it as "newly ready")
+          timestamp: actionType !== 'DEFAULT' ? Date.now() : p.timestamp
       }));
       addLog(`System`, `Item Complete.`, "success", undefined, itemId);
       
@@ -299,7 +308,8 @@ function App() {
           status: 'failed', 
           error: error.message, 
           currentStep: 'Failed',
-          tokenStats: itemTokenUsage
+          tokenStats: itemTokenUsage,
+          timestamp: actionType !== 'DEFAULT' ? Date.now() : p.timestamp
       }));
       addLog(`Error`, error.message, "failed", undefined, itemId);
     }
@@ -330,7 +340,8 @@ function App() {
               pendingItem.original, 
               pendingItem.pendingAction || 'DEFAULT', 
               pendingItem.userFeedback || '', 
-              pendingItem.optimized
+              pendingItem.optimized,
+              pendingItem.tokenStats // Pass existing stats for accumulation
           );
       } else if (activeCount === 0 && !pendingItem && processedItems.length > 0 && processedItems.some(p => p.status === 'processing')) {
           // All done (check if we just finished to play sound)
@@ -363,8 +374,9 @@ function App() {
       const parseLogId = addLog("Parser", "Parsing input...", "working");
       const newFacts = await AgentService.parseRawInput(inputText);
       
-      const queueItems: ProcessedItem[] = newFacts.map(fact => ({
+      const queueItems: ProcessedItem[] = newFacts.map((fact, index) => ({
           id: Math.random().toString(36).substr(2, 9),
+          timestamp: Date.now() + index, // Ensure unique and ordered timestamp
           original: fact,
           optimized: null,
           score: null,
@@ -416,12 +428,15 @@ function App() {
                 currentStep: 'Queued for optimization...',
                 reviewed: false,
                 pendingAction: 'REPROCESS_WITH_FEEDBACK',
-                userFeedback: feedback
+                userFeedback: feedback,
+                triageDecision: 'FULL_OPTIMIZE', // Set decision immediately for UI feedback
+                // Update Original to be the current optimized state (user accepted baseline)
+                original: item.optimized ? { ...item.optimized } : item.original
             };
         }
         return item;
     }));
-    setActiveTab('processing'); 
+    // Do NOT change active tab automatically
     setIsProcessing(true);
     setShouldStop(false);
   };
@@ -436,11 +451,14 @@ function App() {
                 reviewed: false,
                 pendingAction: 'REGENERATE_LIES',
                 logs: [], 
+                triageDecision: 'GENERATE_LIES', // Set decision immediately for UI feedback
+                // Update Original to be the current optimized state
+                original: item.optimized ? { ...item.optimized } : item.original
             };
         }
         return item;
     }));
-    setActiveTab('processing');
+    // Do NOT change active tab automatically
     setIsProcessing(true);
     setShouldStop(false);
   };
@@ -524,17 +542,31 @@ function App() {
           return item.status === 'pending' || item.status === 'processing';
       }
       if (activeTab === 'ready') {
-          // Ready for Review = Done but not reviewed
+          // Ready for Review includes ONLY Completed or Failed items that are NOT currently processing.
+          // This ensures processing items (even if they were once ready) are strictly shown in the queue tab.
           return !item.reviewed && (item.status === 'completed' || item.status === 'failed');
       }
       return false;
   });
+
+  // Sort by Timestamp (FIFO)
+  tabItems.sort((a, b) => a.timestamp - b.timestamp);
 
   // Pagination for current tab
   const indexOfLastItem = currentPage * ITEMS_PER_PAGE;
   const indexOfFirstItem = indexOfLastItem - ITEMS_PER_PAGE;
   const currentDisplayItems = tabItems.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(tabItems.length / ITEMS_PER_PAGE);
+
+  // Estimation Logic for Ready Tab
+  const getEstimatedWaitTime = () => {
+      const queueCount = processedItems.filter(p => p.status === 'pending').length;
+      if (queueCount === 0) return null;
+      // Simple heuristic: X seconds per item
+      const ms = queueCount * AVG_PROCESSING_TIME / concurrency;
+      return Math.ceil(ms / 1000);
+  };
+  const waitTime = getEstimatedWaitTime();
 
   // Reset page when tab changes
   useEffect(() => {
@@ -738,9 +770,16 @@ function App() {
               </div>
 
               <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-                <div className="text-slate-400 text-sm font-mono">
-                    {/* Status Text */}
-                    Showing {tabItems.length > 0 ? indexOfFirstItem + 1 : 0}-{Math.min(indexOfLastItem, tabItems.length)} of {tabItems.length}
+                <div className="text-slate-400 text-sm font-mono flex items-center gap-4">
+                    <span>
+                        Showing {tabItems.length > 0 ? indexOfFirstItem + 1 : 0}-{Math.min(indexOfLastItem, tabItems.length)} of {tabItems.length}
+                    </span>
+                    {activeTab === 'ready' && waitTime !== null && waitTime > 0 && (
+                        <span className="flex items-center gap-2 text-neon-blue bg-neon-blue/10 px-2 py-0.5 rounded text-xs animate-pulse">
+                            <Hourglass className="w-3 h-3" />
+                            Next item ~{waitTime}s
+                        </span>
+                    )}
                 </div>
                 
                 <div className="flex items-center gap-4">

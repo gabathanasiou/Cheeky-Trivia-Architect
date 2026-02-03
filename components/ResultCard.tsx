@@ -60,7 +60,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
     onUpdate(id, newData);
   };
 
-  // Logic to turn selected text into blank
+  // Logic to turn selected text into blank and restore old answer
   const handleMakeBlank = () => {
       if (!formData || !factTextareaRef.current) return;
       
@@ -74,27 +74,31 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
       const currentFactText = formData.fact;
       const selectedText = currentFactText.substring(start, end);
       
-      // 1. We must replace the OLD <BLANK> with the OLD Answer first to get the full sentence.
-      // But we have to be careful about indices. The indices [start, end] correspond to the currentFactText (which HAS the old blank).
+      // We want to hide 'selectedText' -> This becomes the NEW Answer.
+      // We want to restore the old answer into the OLD <BLANK>.
       
       const beforeSelection = currentFactText.substring(0, start);
       const afterSelection = currentFactText.substring(end);
       
-      // Create a temporary string where selection is marked with a placeholder unique enough
-      const PLACEHOLDER_NEW = "___NEW_BLANK___";
-      const tempStringWithNewBlank = beforeSelection + PLACEHOLDER_NEW + afterSelection;
+      // 1. Create a temp string where the NEW blank location is marked.
+      const TEMP_MARKER = "@@@NEW_BLANK@@@";
+      const tempFact = beforeSelection + TEMP_MARKER + afterSelection;
       
-      // Now replace the OLD blank marker (assuming <BLANK> or similar) with the old answer
-      // We do a case-insensitive replacement for standard blank variations
-      const filledString = tempStringWithNewBlank.replace(/<BLANK>|\[BLANK\]|___/gi, formData.answer);
+      // 2. Replace the OLD <BLANK> (if it exists outside the selection) with the OLD Answer.
+      // We use a regex to catch variations of blank.
+      const restoredFact = tempFact.replace(/<BLANK>|\[BLANK\]|___/gi, formData.answer);
       
-      // Finally, replace our unique placeholder with the proper <BLANK>
-      const finalFact = filledString.replace(PLACEHOLDER_NEW, "<BLANK>");
+      // 3. Put the actual <BLANK> tag in the new position.
+      const finalFact = restoredFact.replace(TEMP_MARKER, "<BLANK>");
+
+      // 4. If the old blank was actually INSIDE the selection, 'selectedText' will contain <BLANK>.
+      // We should resolve that to the old answer as well, so the new answer text is clean.
+      const finalNewAnswer = selectedText.replace(/<BLANK>|\[BLANK\]|___/gi, formData.answer);
       
       const newData = {
           ...formData,
           fact: finalFact,
-          answer: selectedText // The highlighted text becomes the new answer
+          answer: finalNewAnswer
       };
       
       setFormData(newData);
@@ -179,7 +183,10 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
             <div className="w-2 h-2 rounded-full bg-slate-600"></div>
             <span className="text-xs text-slate-400 font-mono">Queued: {original.fact.substring(0, 50)}...</span>
         </div>
-        <span className="text-[10px] text-slate-600 uppercase font-bold">Waiting</span>
+        <div className="flex items-center gap-2">
+            {renderDecisionBadge(triageDecision)}
+            <span className="text-[10px] text-slate-600 uppercase font-bold">Waiting</span>
+        </div>
     </div>
   );
   
@@ -219,12 +226,6 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
   return (
     <div className={`w-full bg-slate-900 border ${reviewed ? 'border-neon-green/30' : 'border-slate-800'} rounded-xl overflow-hidden shadow-lg hover:shadow-neon-purple/10 transition-all duration-300 flex flex-col relative`}>
       
-      {reviewed && (
-          <div className="absolute top-0 right-0 bg-neon-green text-black text-[10px] font-bold px-2 py-0.5 rounded-bl shadow-lg">
-              REVIEWED
-          </div>
-      )}
-
       {/* Header Bar */}
       <div className="bg-slate-950 px-4 py-3 border-b border-slate-800 flex justify-between items-center flex-wrap gap-2">
          <div className="flex items-center gap-3">
@@ -271,7 +272,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
              <button 
                 onClick={onRegenerateLies}
                 title="Regenerate Lies Only"
-                className="p-1.5 text-slate-500 hover:text-neon-yellow bg-slate-900 border border-slate-800 rounded hover:border-neon-yellow/50 transition-colors"
+                className="p-1.5 text-slate-500 hover:text-neon-yellow bg-slate-900 border border-slate-800 rounded hover:border-neon-yellow/50 hover:bg-neon-yellow/10 transition-colors"
              >
                  <Dna className="w-3.5 h-3.5" />
              </button>
@@ -379,7 +380,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
                         title="Convert selected text to blank and restore old answer to fact"
                         className="text-[10px] bg-slate-900 hover:bg-neon-purple/20 text-neon-purple border border-neon-purple/30 px-2 py-0.5 rounded flex items-center gap-1 mb-1 transition-colors"
                     >
-                        <Scissors className="w-3 h-3" /> Set Blank
+                        <Scissors className="w-3 h-3" /> Swap Blank
                     </button>
                  </div>
                  <textarea 

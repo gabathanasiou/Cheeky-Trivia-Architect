@@ -147,7 +147,7 @@ The lies should try to make sense with the big sentense and be plausible, not st
 
     Decision Logic:
     - KEEP_ALL: Passes ALL checks above perfectly. 
-    - GENERATE_LIES: Fact placement is great/ironic, but lies are >20 chars, boring, or grammatically weak.
+    - GENERATE_LIES: Fact placement is great/ironic, but lies are >25 chars, boring, or grammatically weak.
     - FULL_OPTIMIZE: Fact is boring, blank is in a boring spot, or the concept needs a rewrite.
   `;
 
@@ -248,7 +248,7 @@ export const critiquePlacement = async (factWithBlank: string, answer: string, l
     - Score < 7 if the blank hides a boring number or date.
     - Score > 8 if the blank hides the "punchline" or irony.
 
-    Return { score, feedback }. Be strict.
+    Return { score, sort to the point feedback only if score is <7 }. Be strict. 
   `;
 
   const response = await generateContentWithRetry(
@@ -332,7 +332,7 @@ export const refineLies = async (factWithBlank: string, rawLies: string[], langu
     
     Task:
     1. Select the top 5 funniest/best lies from the candidates that can create sentences that make sense practically when put into the original fact.
-    2. REWRITE any lie longer than 20 characters to be < 20 characters. This is CRITICAL.
+    2. REWRITE any lie longer than 25 characters to be < 25 characters. This is CRITICAL.
     3. Ensure strict grammatical fit with the sentence.
     
     Return exactly 5 optimized strings. Do it fast.
