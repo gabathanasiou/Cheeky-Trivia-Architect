@@ -22,6 +22,7 @@ const DEFAULT_INPUT = `[
 
 const ITEMS_PER_PAGE = 10;
 const AVG_PROCESSING_TIME = 8000; // ms
+const STORAGE_KEY = 'cheeky_trivia_app_state_v1';
 
 // Simple success sound using Web Audio API
 const playSuccessSound = () => {
@@ -52,21 +53,77 @@ const playSuccessSound = () => {
 };
 
 function App() {
-  const [inputText, setInputText] = useState(DEFAULT_INPUT);
-  const [language, setLanguage] = useState("English");
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [logs, setLogs] = useState<AgentLog[]>([]); // Global logs
-  const [processedItems, setProcessedItems] = useState<ProcessedItem[]>([]);
+  // Load initial state lazily once
+  const [initialState] = useState(() => {
+    try {
+        const item = localStorage.getItem(STORAGE_KEY);
+        return item ? JSON.parse(item) : null;
+    } catch (e) {
+        console.error("Failed to load local storage", e);
+        return null;
+    }
+  });
+
+  const [inputText, setInputText] = useState(initialState?.inputText || DEFAULT_INPUT);
+  const [language, setLanguage] = useState(initialState?.language || "English");
+  const [isProcessing, setIsProcessing] = useState(false); // Always start paused on reload
+  const [logs, setLogs] = useState<AgentLog[]>(initialState?.logs || []); 
+  
+  // Smart Restore: If items were 'processing' when app closed, reset them to 'pending' so they aren't stuck.
+  const [processedItems, setProcessedItems] = useState<ProcessedItem[]>(() => {
+      const savedItems = initialState?.processedItems;
+      if (Array.isArray(savedItems)) {
+          return savedItems.map((p: ProcessedItem) => 
+            p.status === 'processing' 
+                ? { ...p, status: 'pending', currentStep: 'Session restored. Waiting...' } 
+                : p
+          );
+      }
+      return [];
+  });
+
   const [copied, setCopied] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [showSettings, setShowSettings] = useState(false);
-  const [activeTab, setActiveTab] = useState<'processing' | 'ready' | 'reviewed'>('ready');
+  const [activeTab, setActiveTab] = useState<'processing' | 'ready' | 'reviewed'>(initialState?.activeTab || 'ready');
   
   // Settings
-  const [tokenLimit, setTokenLimit] = useState(100000);
-  const [concurrency, setConcurrency] = useState(5);
-  const [totalTokenUsage, setTotalTokenUsage] = useState({ count: 0, cost: 0 });
+  const [tokenLimit, setTokenLimit] = useState(initialState?.tokenLimit || 100000);
+  const [concurrency, setConcurrency] = useState(initialState?.concurrency || 5);
+  const [totalTokenUsage, setTotalTokenUsage] = useState(initialState?.totalTokenUsage || { count: 0, cost: 0 });
   const [shouldStop, setShouldStop] = useState(false);
+
+  // --------------------------------------------------------
+  // PERSISTENCE
+  // --------------------------------------------------------
+  useEffect(() => {
+    const stateToSave = {
+        inputText,
+        language,
+        logs,
+        processedItems,
+        totalTokenUsage,
+        tokenLimit,
+        concurrency,
+        activeTab
+    };
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+    } catch (e) {
+        console.error("Failed to save state to local storage", e);
+    }
+  }, [inputText, language, logs, processedItems, totalTokenUsage, tokenLimit, concurrency, activeTab]);
+
+  const handleClearSession = () => {
+      if (window.confirm("Are you sure you want to clear the entire session? This will delete all logs and items permanently.")) {
+          setProcessedItems([]);
+          setLogs([]);
+          setTotalTokenUsage({ count: 0, cost: 0 });
+          setIsProcessing(false);
+          setShouldStop(false);
+          localStorage.removeItem(STORAGE_KEY);
+      }
+  };
 
   // --------------------------------------------------------
   // LOGGING UTILS
@@ -650,7 +707,7 @@ function App() {
                   </div>
                   <div className="flex items-end gap-2 flex-wrap content-end">
                      <button 
-                        onClick={() => setProcessedItems([])} 
+                        onClick={handleClearSession} 
                         className="bg-red-900/20 hover:bg-red-900/50 text-red-500 border border-red-900/50 px-4 py-2 rounded text-xs font-bold flex items-center gap-2"
                      >
                         <Trash2 className="w-3 h-3" /> Clear Session
