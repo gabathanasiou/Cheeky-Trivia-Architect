@@ -26,6 +26,18 @@ export const AgentVisualizer: React.FC<AgentVisualizerProps> = ({ logs, compact 
     }
   };
 
+  const getAgentColor = (name: string) => {
+      if (name.includes('Critic')) return 'text-neon-pink';
+      if (name.includes('Parser')) return 'text-yellow-400';
+      if (name.includes('Triage')) return 'text-orange-400';
+      // Localization Agents
+      if (name.includes('Cultural')) return 'text-cyan-400';
+      if (name.includes('Linguist')) return 'text-indigo-400';
+      if (name.includes('Fixer')) return 'text-emerald-400';
+      
+      return 'text-neon-blue';
+  };
+
   return (
     <div className={`w-full bg-slate-950 border border-slate-800 rounded-lg overflow-hidden flex flex-col shadow-inner ${compact ? 'h-[200px]' : 'h-[300px] shadow-2xl'}`}>
       <div className={`bg-slate-900 px-4 py-2 border-b border-slate-800 flex items-center gap-2 ${compact ? 'py-1.5' : ''}`}>
@@ -48,12 +60,7 @@ export const AgentVisualizer: React.FC<AgentVisualizerProps> = ({ logs, compact 
             <div className="pt-1">{getStatusIcon(log.status)}</div>
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-1">
-                <span className={`font-bold text-xs px-2 py-0.5 rounded bg-slate-800 ${
-                  log.agentName.includes('Critic') ? 'text-neon-pink' : 
-                  log.agentName.includes('Parser') ? 'text-yellow-400' :
-                  log.agentName.includes('Triage') ? 'text-orange-400' :
-                  'text-neon-blue'
-                }`}>
+                <span className={`font-bold text-xs px-2 py-0.5 rounded bg-slate-800 ${getAgentColor(log.agentName)}`}>
                   {log.agentName}
                 </span>
                 {!compact && (

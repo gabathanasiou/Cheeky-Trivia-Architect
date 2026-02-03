@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { ProcessedItem, TriviaFact, TriageAction } from '../types';
-import { Sparkles, Save, X, Loader2, Copy, ChevronDown, ChevronUp, DollarSign, FileText, CheckCircle2, AlertTriangle, Lightbulb, RefreshCw, RotateCcw, CheckSquare, Square, BrainCircuit, Dna, ArrowLeftRight, Trash2, Scissors } from 'lucide-react';
+import { Sparkles, Save, X, Loader2, Copy, ChevronDown, ChevronUp, DollarSign, FileText, CheckCircle2, AlertTriangle, Lightbulb, RefreshCw, RotateCcw, CheckSquare, Square, BrainCircuit, Dna, ArrowLeftRight, Trash2, Scissors, Globe } from 'lucide-react';
 import { AgentVisualizer } from './AgentVisualizer';
 
 interface ResultCardProps {
@@ -14,7 +14,7 @@ interface ResultCardProps {
 }
 
 export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggleReview, onReprocessWithFeedback, onRegenerateLies, onRevert, onDiscard }) => {
-  const { id, original, optimized, score, status, currentStep, logs, triageDecision, tokenStats, reviewed } = item;
+  const { id, original, optimized, score, status, currentStep, logs, triageDecision, tokenStats, reviewed, mode } = item;
   
   const [formData, setFormData] = React.useState<TriviaFact | null>(null);
   const [showLogs, setShowLogs] = React.useState(true);
@@ -23,6 +23,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
   const [feedbackText, setFeedbackText] = useState("");
   
   const factTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const isLocalization = mode === 'LOCALIZATION';
 
   React.useEffect(() => {
     if (optimized) {
@@ -155,19 +156,34 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
         </div>
     );
   };
+  
+  const renderModeBadge = () => {
+      if (isLocalization) {
+          return (
+             <div className="flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border bg-orange-900/30 text-orange-400 border-orange-800">
+                <Globe className="w-3 h-3" />
+                Localized
+             </div>
+          );
+      }
+      return null;
+  };
 
   // Status Rendering
   if (status === 'processing') return (
      <div className="w-full bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg p-6 flex flex-col gap-6 animate-pulse">
         <div className="flex justify-between items-start">
             <div className="flex items-center gap-4">
-                <Loader2 className="w-6 h-6 text-neon-blue animate-spin" />
+                <Loader2 className={`w-6 h-6 animate-spin ${isLocalization ? 'text-orange-400' : 'text-neon-blue'}`} />
                 <div className="space-y-1">
                     <span className="text-slate-300 font-bold font-mono text-sm block">Processing Item #{id.substring(0,4)}</span>
-                    <span className="text-neon-purple font-mono text-xs">{currentStep || "Initializing agents..."}</span>
+                    <span className={`${isLocalization ? 'text-orange-400' : 'text-neon-purple'} font-mono text-xs`}>{currentStep || "Initializing agents..."}</span>
                 </div>
             </div>
-            {renderDecisionBadge(triageDecision)}
+            <div className="flex gap-2">
+                {renderModeBadge()}
+                {renderDecisionBadge(triageDecision)}
+            </div>
         </div>
         <div className="bg-slate-950/50 p-4 rounded border border-slate-800">
              <div className="text-[10px] text-slate-500 font-bold uppercase mb-1">Original Input</div>
@@ -180,10 +196,11 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
   if (status === 'pending') return (
     <div className="w-full bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex items-center justify-between opacity-60">
         <div className="flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full bg-slate-600"></div>
-            <span className="text-xs text-slate-400 font-mono">Queued: {original.fact.substring(0, 50)}...</span>
+            <div className={`w-2 h-2 rounded-full ${isLocalization ? 'bg-orange-500' : 'bg-slate-600'}`}></div>
+            <span className="text-xs text-slate-400 font-mono">Queued ({mode}): {original.fact.substring(0, 50)}...</span>
         </div>
         <div className="flex items-center gap-2">
+            {renderModeBadge()}
             {renderDecisionBadge(triageDecision)}
             <span className="text-[10px] text-slate-600 uppercase font-bold">Waiting</span>
         </div>
@@ -222,9 +239,13 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
   if (!formData) return null;
 
   const scoreColor = (score || 0) >= 8 ? 'text-neon-green' : (score || 0) >= 6 ? 'text-yellow-400' : 'text-red-400';
+  const themeColor = isLocalization ? 'orange' : 'neon-purple';
+  const themeBorder = isLocalization ? 'border-orange-500/20' : 'border-neon-purple/20';
+  const themeBg = isLocalization ? 'bg-orange-900/5' : 'bg-neon-purple/5';
+  const themeText = isLocalization ? 'text-orange-400' : 'text-neon-purple';
 
   return (
-    <div className={`w-full bg-slate-900 border ${reviewed ? 'border-neon-green/30' : 'border-slate-800'} rounded-xl overflow-hidden shadow-lg hover:shadow-neon-purple/10 transition-all duration-300 flex flex-col relative`}>
+    <div className={`w-full bg-slate-900 border ${reviewed ? 'border-neon-green/30' : 'border-slate-800'} rounded-xl overflow-hidden shadow-lg hover:shadow-${themeColor}/10 transition-all duration-300 flex flex-col relative`}>
       
       {/* Header Bar */}
       <div className="bg-slate-950 px-4 py-3 border-b border-slate-800 flex justify-between items-center flex-wrap gap-2">
@@ -234,6 +255,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
                 Score: {score}/10
             </div>
             
+            {renderModeBadge()}
             {renderDecisionBadge(triageDecision)}
 
             {tokenStats && (
@@ -271,15 +293,15 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
 
              <button 
                 onClick={onRegenerateLies}
-                title="Regenerate Lies Only"
-                className="p-1.5 text-slate-500 hover:text-neon-yellow bg-slate-900 border border-slate-800 rounded hover:border-neon-yellow/50 hover:bg-neon-yellow/10 transition-colors"
+                title={isLocalization ? "Re-localize Lies to fit current Fact" : "Regenerate Lies Only"}
+                className={`p-1.5 text-slate-500 ${isLocalization ? 'hover:text-orange-400 hover:bg-orange-900/20' : 'hover:text-neon-yellow hover:bg-neon-yellow/10'} bg-slate-900 border border-slate-800 rounded hover:border-current transition-colors`}
              >
-                 <Dna className="w-3.5 h-3.5" />
+                <Dna className="w-3.5 h-3.5" />
              </button>
 
              <button 
                 onClick={() => setShowFeedbackInput(!showFeedbackInput)}
-                title="Reprocess with Feedback"
+                title={isLocalization ? "Refine Translation with Instructions" : "Reprocess with Feedback"}
                 className={`p-1.5 border rounded transition-colors ${showFeedbackInput ? 'text-neon-blue border-neon-blue bg-neon-blue/10' : 'text-slate-500 hover:text-neon-blue bg-slate-900 border-slate-800 hover:border-neon-blue/50'}`}
              >
                  <BrainCircuit className="w-3.5 h-3.5" />
@@ -310,7 +332,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
       {showFeedbackInput && (
           <div className="bg-slate-900 border-b border-slate-800 p-4 animate-in slide-in-from-top-2">
               <label className="text-xs font-bold text-neon-blue mb-2 block flex items-center gap-2">
-                  <BrainCircuit className="w-3 h-3" /> Architect Feedback (You are the Critic)
+                  <BrainCircuit className="w-3 h-3" /> {isLocalization ? 'Translation Guidance' : 'Architect Feedback'}
               </label>
               <div className="flex gap-2">
                   <input 
@@ -318,7 +340,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
                     type="text" 
                     value={feedbackText}
                     onChange={(e) => setFeedbackText(e.target.value)}
-                    placeholder="e.g. The blank is too easy, make it harder..."
+                    placeholder={isLocalization ? "e.g. Too formal, use slang for 'Money'..." : "e.g. The blank is too easy, make it harder..."}
                     className="flex-1 bg-slate-950 border border-slate-700 rounded p-2 text-sm text-white focus:border-neon-blue outline-none"
                     onKeyDown={(e) => e.key === 'Enter' && handleReprocessSubmit()}
                   />
@@ -326,7 +348,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
                     onClick={handleReprocessSubmit}
                     className="bg-neon-blue/20 hover:bg-neon-blue/40 text-neon-blue border border-neon-blue/50 px-4 py-2 rounded text-xs font-bold"
                   >
-                      Reprocess
+                      {isLocalization ? 'Re-translate' : 'Reprocess'}
                   </button>
               </div>
           </div>
@@ -367,25 +389,26 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
         </div>
 
         {/* RIGHT COLUMN: OPTIMIZED */}
-        <div className="bg-neon-purple/5 border border-neon-purple/20 rounded-lg p-4 space-y-4 h-full relative">
-            <h4 className="text-[10px] uppercase tracking-widest text-neon-purple font-bold border-b border-neon-purple/20 pb-2 flex items-center gap-2">
-                <Sparkles className="w-3 h-3" /> Optimized Result
+        <div className={`${themeBg} border ${themeBorder} rounded-lg p-4 space-y-4 h-full relative`}>
+            <h4 className={`text-[10px] uppercase tracking-widest ${themeText} font-bold border-b ${themeBorder} pb-2 flex items-center gap-2`}>
+                {isLocalization ? <Globe className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
+                {isLocalization ? 'Localized Result' : 'Optimized Result'}
             </h4>
             
             <div className="space-y-2 relative">
                  <div className="flex justify-between items-center">
-                    <label className="text-[10px] uppercase font-bold text-neon-purple/70">Fact (Editable)</label>
+                    <label className={`text-[10px] uppercase font-bold ${themeText} opacity-70`}>Fact (Editable)</label>
                     <button 
                         onClick={handleMakeBlank}
                         title="Convert selected text to blank and restore old answer to fact"
-                        className="text-[10px] bg-slate-900 hover:bg-neon-purple/20 text-neon-purple border border-neon-purple/30 px-2 py-0.5 rounded flex items-center gap-1 mb-1 transition-colors"
+                        className={`text-[10px] bg-slate-900 hover:bg-white/10 ${themeText} border border-current opacity-50 hover:opacity-100 px-2 py-0.5 rounded flex items-center gap-1 mb-1 transition-colors`}
                     >
                         <Scissors className="w-3 h-3" /> Swap Blank
                     </button>
                  </div>
                  <textarea 
                     ref={factTextareaRef}
-                    className="w-full bg-slate-950 text-white text-sm p-3 rounded border border-slate-700 focus:border-neon-purple outline-none transition-colors min-h-[80px]"
+                    className={`w-full bg-slate-950 text-white text-sm p-3 rounded border border-slate-700 focus:border-current outline-none transition-colors min-h-[80px] ${themeText}`}
                     value={formData.fact}
                     onChange={(e) => handleFactChange(e.target.value)}
                     placeholder="Enter fact with <BLANK>..."
@@ -402,7 +425,9 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
             </div>
 
             <div>
-                 <label className="text-[10px] uppercase font-bold text-slate-400 mb-2 block">Optimized Lies (Editable)</label>
+                 <label className="text-[10px] uppercase font-bold text-slate-400 mb-2 block">
+                    {isLocalization ? 'Localized Lies (Editable)' : 'Optimized Lies (Editable)'}
+                 </label>
                  <div className="grid grid-cols-1 gap-2">
                     {formData.lies.map((lie, i) => (
                         <div key={i} className="flex items-center gap-2">

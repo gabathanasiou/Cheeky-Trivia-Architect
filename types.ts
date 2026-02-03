@@ -5,6 +5,8 @@ export interface TriviaFact {
   lies: string[];
 }
 
+export type SystemMode = 'OPTIMIZATION' | 'LOCALIZATION';
+
 export interface AgentLog {
   id: string;
   agentName: string;
@@ -24,6 +26,7 @@ export interface TokenUsage {
 export interface ProcessedItem {
   id: string;
   timestamp: number; // For FIFO sorting
+  mode: SystemMode; // NEW: Tracks which engine processed this item
   original: TriviaFact;
   optimized: TriviaFact | null;
   score: number | null;
@@ -72,4 +75,16 @@ export interface AgentResponseRawLies {
 
 export interface AgentResponseLieCheck {
   fixedLies: string[];
+}
+
+// NEW TYPES FOR LOCALIZATION
+export interface AgentResponseLocalization {
+    fact: string;
+    answer: string;
+    lies: string[];
+}
+
+export interface AgentResponseLinguist {
+    score: number;
+    issues: string[];
 }

@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Schema, GenerateContentResponse } from "@google/genai";
-import { TriviaFact, AgentResponseCheck, AgentResponseRawLies, AgentResponseLieCheck, AgentResponseArchitect, TriageResult, AgentResult, TokenUsage } from "../types";
+import { TriviaFact, AgentResponseCheck, AgentResponseRawLies, AgentResponseLieCheck, AgentResponseArchitect, TriageResult, AgentResult, TokenUsage, AgentResponseLocalization, AgentResponseLinguist } from "../types";
 
 const getAiClient = () => {
   const apiKey = process.env.API_KEY;
@@ -351,4 +351,211 @@ export const refineLies = async (factWithBlank: string, rawLies: string[], langu
   };
 };
 
-export const generateOptimizedLies = async () => { throw new Error("Deprecated: Use generateRawLies + refineLies"); }
+// =========================================================
+// LOCALIZATION ENGINE AGENTS
+// =========================================================
+
+// Agent L1: Cultural Bridge
+export const localizeContent = async (
+    fact: TriviaFact, 
+    targetLanguage: string,
+    feedback?: string
+): Promise<AgentResult<AgentResponseLocalization>> => {
+    const model = "gemini-3-flash-preview";
+    const responseSchema: Schema = {
+        type: Type.OBJECT,
+        properties: {
+            fact: { type: Type.STRING },
+            answer: { type: Type.STRING },
+            lies: { type: Type.ARRAY, items: { type: Type.STRING } }
+        },
+        required: ["fact", "answer", "lies"]
+    };
+
+    let guidance = "";
+    if (feedback) {
+        guidance = `\nUSER FEEDBACK / GUIDANCE: "${feedback}". \nIMPORTANT: You must adjust the translation or tone to specifically address the user's feedback above.`;
+    }
+
+    const prompt = `
+    Role: Expert Cultural Localization Specialist.
+    Source: English. Target: ${targetLanguage}.
+    
+    Input:
+    - Fact: "${fact.fact}" (contains <BLANK>)
+    - Answer: "${fact.answer}" (fills the blank)
+    - Lies: ${JSON.stringify(fact.lies)}
+
+    ${guidance}
+
+    Task:
+    1. Translate the Fact, Answer, and Lies to ${targetLanguage}.
+    2. CRITICAL: You MUST preserve the <BLANK> tag in the translated fact.
+    3. Ensure the translated Answer fits the <BLANK> grammatically (Case, Gender, Number).
+    4. Ensure ALL translated Lies fit the <BLANK> grammatically (Case, Gender, Number).
+    5. Cultural Adaptation: If the fact relies on an English pun or idiom that doesn't translate, adapt the sentence structure or wording so it sounds natural and funny in ${targetLanguage}.
+    6. Constraint: Keep lies short (< 30 chars).
+    `;
+
+    const response = await generateContentWithRetry(
+        model,
+        prompt,
+        { responseMimeType: "application/json", responseSchema }
+    );
+
+    if (!response.text) throw new Error("Localization Agent L1 failed");
+    return {
+        data: JSON.parse(response.text) as AgentResponseLocalization,
+        usage: calculateUsage(response)
+    };
+};
+
+// Agent L1.5: Lie Localizer (For Regenerate Lies)
+export const localizeLies = async (
+    factContext: string,
+    answerContext: string,
+    sourceLies: string[],
+    targetLanguage: string
+): Promise<AgentResult<AgentResponseLocalization>> => {
+    const model = "gemini-3-flash-preview";
+    const responseSchema: Schema = {
+        type: Type.OBJECT,
+        properties: {
+            fact: { type: Type.STRING },
+            answer: { type: Type.STRING },
+            lies: { type: Type.ARRAY, items: { type: Type.STRING } }
+        },
+        required: ["fact", "answer", "lies"]
+    };
+
+    const prompt = `
+    Role: Localization Expert.
+    Target Language: ${targetLanguage}.
+    
+    Context (Already Localized):
+    - Fact: "${factContext}"
+    - Answer: "${answerContext}"
+    
+    Source Content to Localize:
+    - Lies (English): ${JSON.stringify(sourceLies)}
+    
+    Task:
+    1. Translate the English Lies to ${targetLanguage}.
+    2. Ensure they fit grammatically and semantically into the Context Fact's <BLANK>.
+    3. If the direct translation doesn't fit the context, adapt it.
+    4. Return the context fact/answer as is, and the NEW list of lies.
+    `;
+
+    const response = await generateContentWithRetry(
+        model,
+        prompt,
+        { responseMimeType: "application/json", responseSchema }
+    );
+
+    if (!response.text) throw new Error("Localization Agent L1.5 failed");
+    return {
+        data: JSON.parse(response.text) as AgentResponseLocalization,
+        usage: calculateUsage(response)
+    };
+};
+
+// Agent L2: The Linguist
+export const checkGrammar = async (
+    factWithBlank: string,
+    answer: string,
+    lies: string[],
+    targetLanguage: string
+): Promise<AgentResult<AgentResponseLinguist>> => {
+    const model = "gemini-3-flash-preview";
+    const responseSchema: Schema = {
+        type: Type.OBJECT,
+        properties: {
+            score: { type: Type.NUMBER },
+            issues: { type: Type.ARRAY, items: { type: Type.STRING } }
+        },
+        required: ["score", "issues"]
+    };
+
+    const prompt = `
+    Role: Strict Linguistic Critic. Language: ${targetLanguage}.
+    
+    Context (Fact): "${factWithBlank}"
+    Answer: "${answer}"
+    Lies: ${JSON.stringify(lies)}
+    
+    Task: Verify grammatical correctness when filling the <BLANK>.
+    
+    Checklist:
+    1. Case Agreement: Do the Answer and Lies match the grammatical case required by the blank (e.g., Nominative, Genitive, Accusative)?
+    2. Gender Agreement: Do adjectives/articles match the context?
+    3. Number Agreement: Singular/Plural consistency.
+    4. Natural Flow: Does it sound like a native speaker wrote it?
+    
+    Score 1-10.
+    - 10 = Perfect native grammar.
+    - < 8 = Minor awkwardness.
+    - < 5 = Grammatical errors.
+    
+    List specific issues if any.
+    `;
+
+    const response = await generateContentWithRetry(
+        model,
+        prompt,
+        { responseMimeType: "application/json", responseSchema }
+    );
+
+    if (!response.text) throw new Error("Linguist Agent L2 failed");
+    return {
+        data: JSON.parse(response.text) as AgentResponseLinguist,
+        usage: calculateUsage(response)
+    };
+};
+
+// Agent L3: The Fixer
+export const fixTranslation = async (
+    factWithBlank: string,
+    answer: string,
+    lies: string[],
+    issues: string[],
+    targetLanguage: string
+): Promise<AgentResult<AgentResponseLocalization>> => {
+    const model = "gemini-3-flash-preview";
+    const responseSchema: Schema = {
+        type: Type.OBJECT,
+        properties: {
+            fact: { type: Type.STRING },
+            answer: { type: Type.STRING },
+            lies: { type: Type.ARRAY, items: { type: Type.STRING } }
+        },
+        required: ["fact", "answer", "lies"]
+    };
+
+    const prompt = `
+    Role: Linguistic Surgeon. Language: ${targetLanguage}.
+    
+    Problematic Input:
+    - Fact: "${factWithBlank}"
+    - Answer: "${answer}"
+    - Lies: ${JSON.stringify(lies)}
+    
+    Reported Issues: ${JSON.stringify(issues)}
+    
+    Task: Rewrite the content to fix ALL grammatical issues. 
+    You may change the structure of the sentence around the <BLANK> if necessary to make the options fit better (e.g., changing from Accusative to Nominative structure).
+    
+    Return clean, grammatically perfect JSON.
+    `;
+
+    const response = await generateContentWithRetry(
+        model,
+        prompt,
+        { responseMimeType: "application/json", responseSchema }
+    );
+
+    if (!response.text) throw new Error("Fixer Agent L3 failed");
+    return {
+        data: JSON.parse(response.text) as AgentResponseLocalization,
+        usage: calculateUsage(response)
+    };
+};
