@@ -86,6 +86,13 @@ the Optimizer and `/#jobs` share one queue, one progress stream and one pause/st
 path. There is no in-browser executor. A fact with fewer than five lies is forced through lie generation rather than
 `KEEP_ALL`.
 
+## Comedy sense
+
+The blank is the punchline, not the plumbing. The full rubric and good/bad
+examples are in [COMEDY.md](COMEDY.md). The fun scorer rejects dry facts below 7;
+the Comedy Critic keeps 8+, re-blanks 7, and rejects below 7. It is deliberately
+strict: most technically-correct blanks are not funny.
+
 ## Prompts
 
 Live in `src/core/agents/prompts.ts`. Keep the long rules in the **system** message

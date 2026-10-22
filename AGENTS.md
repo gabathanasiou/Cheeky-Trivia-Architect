@@ -57,5 +57,5 @@
 
 ## Docs
 
-`README.md`, `docs/ARCHITECTURE.md`, `docs/PIPELINE.md`, `docs/SOURCES.md`,
-`docs/COST.md`, `docs/EXPORT.md`. Keep this file ≤200 lines; detail goes in `docs/`.
+`README.md`, `docs/ARCHITECTURE.md`, `docs/PIPELINE.md`, `docs/COMEDY.md`,
+`docs/SOURCES.md`, `docs/COST.md`, `docs/EXPORT.md`. Keep this file ≤200 lines; detail goes in `docs/`.

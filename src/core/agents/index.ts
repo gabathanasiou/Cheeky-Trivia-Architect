@@ -113,7 +113,7 @@ export async function synthesizeFact(input: {
     jsonExample: JSON_EXAMPLES.synthesize,
     thinking: true,
     effort: configuredEffort(),
-    maxTokens: 1_024,
+    maxTokens: 2_048,
   });
 
   return { data: result.data, usage: result.usage };
@@ -193,7 +193,7 @@ export async function optimizePlacement(
     jsonExample: JSON_EXAMPLES.architect,
     thinking: true,
     effort: configuredEffort(),
-    maxTokens: 1_024,
+    maxTokens: 3_072,
   });
 
   return { data: result.data, usage: result.usage };
@@ -212,7 +212,7 @@ export async function critiquePlacement(
     jsonExample: JSON_EXAMPLES.critic,
     thinking: true,
     effort: configuredEffort(),
-    maxTokens: 512,
+    maxTokens: 2_048,
   });
 
   return { data: result.data, usage: result.usage };
@@ -232,7 +232,7 @@ export async function generateRawLies(
     jsonExample: JSON_EXAMPLES.generate,
     thinking: true,
     effort: configuredEffort(),
-    maxTokens: 2_048,
+    maxTokens: 4_096,
   });
 
   return { data: result.data, usage: result.usage };

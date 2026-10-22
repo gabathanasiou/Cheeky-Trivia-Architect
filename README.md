@@ -73,6 +73,7 @@ Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 
 - [Roadmap](docs/ROADMAP.md): open work only; completed items live in the archive.
 - [Pipeline](docs/PIPELINE.md): agents, effort levels, gates, batch sizes.
+- [Comedy Sense](docs/COMEDY.md): the blank-placement taste rules and scoring rubric.
 - [Sources](docs/SOURCES.md): licences, fetching, attribution.
 - [Cost](docs/COST.md): pricing, estimates, budget controls.
 - [Testing](docs/TESTING.md): unit → integration → e2e, mocks, flake policy.

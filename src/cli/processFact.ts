@@ -146,7 +146,7 @@ export async function processFact(
     track('critic', critique.usage);
 
     const tooLong = answerTooLong(placement.data.newAnswer);
-    if (critique.data.score < 7 || tooLong) {
+    if (critique.data.score < 8 || tooLong) {
       const feedback = [
         critique.data.feedback ?? '',
         tooLong
@@ -174,7 +174,7 @@ export async function processFact(
     if (answerTooLong(placement.data.newAnswer)) {
       skip(`answer too long: "${placement.data.newAnswer}"`);
     }
-    if (critique.data.score < 6) skip(`critic score ${critique.data.score}`);
+    if (critique.data.score < 7) skip(`comedy score ${critique.data.score}`);
 
     current = {
       ...current,

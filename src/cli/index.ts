@@ -193,7 +193,7 @@ async function processSection(
 
     const scored = await scoreFact(fact.statement, fact.category);
     onUsage('score', scored.usage);
-    if (scored.data.funScore < 6) {
+    if (scored.data.funScore < 7) {
       console.log(`  skip [${section.index}] funScore ${scored.data.funScore}: ${fact.statement.slice(0, 60)}...`);
       continue;
     }
@@ -240,7 +240,7 @@ async function processSection(
     onUsage('critic', critique.usage);
 
     const tooLong = answerTooLong(placement.data.newAnswer);
-    if (critique.data.score < 7 || tooLong) {
+    if (critique.data.score < 8 || tooLong) {
       const feedback = [
         critique.data.feedback ?? '',
         tooLong
@@ -269,8 +269,8 @@ async function processSection(
       console.log(`  skip [${section.index}] answer too long: ${placement.data.newAnswer}`);
       continue;
     }
-    if (critique.data.score < 6) {
-      console.log(`  skip [${section.index}] critic score ${critique.data.score}: ${placement.data.newFact}`);
+    if (critique.data.score < 7) {
+      console.log(`  skip [${section.index}] comedy score ${critique.data.score}: ${placement.data.newFact}`);
       continue;
     }
 
