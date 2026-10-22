@@ -72,7 +72,7 @@ A fact is rejected before any creative spend when:
 A question is rejected after generation when:
 
 - `fact` does not contain exactly one `<BLANK>`
-- `answer` is empty, appears in `fact`, or appears in `lies`
+- `answer` is empty, longer than 5 words / 45 characters, appears in `fact`, or appears in `lies`
 - fewer than 12 lies, duplicates, or any lie > ~30 chars
 - the truth is a pure number/date (warning; reject for the default bank)
 - language/schema validation fails

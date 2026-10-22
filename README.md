@@ -2,8 +2,9 @@
 
 Batch fact pipeline and review console for [Bamboozle](https://github.com/gabathanasiou/bamboozle).
 It takes a source (a public-domain book, and optionally a multiple-choice dataset),
-synthesises one clean fact per row, places the `<BLANK>`, generates a pool of lies,
-scores everything, and exports a validated question bank.
+synthesises one clean fact per row, places the `<BLANK>`, keeps the answer to five
+words or fewer, generates a pool of lies, scores everything, and exports a validated
+question bank.
 
 The pipeline is a **local CLI**; the browser UI is a **live monitor and review
 console** over the same SQLite database. DeepSeek Flash does the language work, and

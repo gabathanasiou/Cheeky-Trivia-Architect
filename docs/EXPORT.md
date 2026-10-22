@@ -40,7 +40,7 @@ downloads the whole bank. Each file is a plain JSON array; no runtime DB.
 ## Validation (must pass in both repos)
 
 - exactly one `<BLANK>` in `fact`
-- `answer` non-empty and not present in `fact` or `lies`
+- `answer` non-empty, ≤5 words / 45 characters, and not present in `fact` or `lies`
 - 12–15 lies, unique, ≤ ~30 chars, no `<BLANK>`
 - `category` in the canonical registry
 - `id` unique and stable across exports
