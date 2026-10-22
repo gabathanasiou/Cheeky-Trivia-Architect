@@ -10,7 +10,7 @@ import {
   triageFact,
 } from '../core/agents/index';
 import { stableId, validateQuestion } from '../core/agents/validate';
-import type { TokenUsage, TriviaFact } from '../core/types';
+import type { TokenUsage, TriageAction, TriviaFact } from '../core/types';
 import { EMPTY_USAGE, addUsage } from '../core/llm/usage';
 import type { Candidate, RunOptions, UsageSink } from './types';
 
@@ -124,10 +124,16 @@ export async function processFact(
   };
   let blankScore = scored.data.blankScore;
 
-  // An item with too few lies cannot be "kept" even if the fact is good.
-  const triage = await triageFact(current, options.language);
-  track('triage', triage.usage);
-  const action = current.lies.length >= 5 ? triage.data.action : 'GENERATE_LIES';
+  // A bare statement has no blank yet: force the Architect path and skip triage.
+  const hasBlank = /<blank>/i.test(current.fact);
+  let action: TriageAction;
+  if (!hasBlank) {
+    action = 'FULL_OPTIMIZE';
+  } else {
+    const triage = await triageFact(current, options.language);
+    track('triage', triage.usage);
+    action = current.lies.length >= 5 ? triage.data.action : 'GENERATE_LIES';
+  }
 
   if (action === 'FULL_OPTIMIZE') {
     let placement = await optimizePlacement(current, [], '', options.language);
