@@ -127,7 +127,7 @@ export async function processFact(
   // A bare statement has no blank yet: force the Architect path and skip triage.
   const hasBlank = /<blank>/i.test(current.fact);
   let action: TriageAction;
-  if (!hasBlank) {
+  if (!hasBlank || answerTooLong(current.answer)) {
     action = 'FULL_OPTIMIZE';
   } else {
     const triage = await triageFact(current, options.language);
