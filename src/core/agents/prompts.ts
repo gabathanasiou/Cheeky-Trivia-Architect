@@ -274,8 +274,8 @@ Task:
 1. Translate the fact, answer, and lies into ${targetLanguage}.
 2. Preserve <BLANK> exactly.
 3. SUBSTITUTION TEST: replace <BLANK> with the answer, then with each lie. Every resulting sentence must be grammatical and natural.
-4. Gendered languages: do NOT leave an article directly before <BLANK> (Greek: ένα/έναν/μία/μια/ο/η/το/τον/την/της/του/των + <BLANK>). Rewrite the sentence so the blank accepts a bare noun phrase, e.g. "είναι παράνομο να έχεις μόνο <BLANK>" or "είναι <BLANK>". The answer and lies should then be bare noun phrases.
-5. If the source fact uses "the <BLANK>" or "a <BLANK>", drop the article or move it inside the options so all options agree.
+4. Gendered languages: do NOT leave an article directly before <BLANK> (Greek: ένα/έναν/μία/μια/ο/η/το/τον/την/της/του/των + <BLANK>). Move the article INSIDE the answer and each lie instead. The fact should have a bare <BLANK>; every option must be a complete phrase with its own article. Examples: <BLANK> -> "ένα ινδικό χοιρίδιο", "μία σοκολάτα", "ο μονόκερος", "η γκάιντα", "το τέρας του Λοχ Νες".
+5. If the source fact uses "the <BLANK>" or "a/an/one <BLANK>", remove the article from the fact and give every option its own natural article. Preserve quantity: "just one" must remain "μόνο ένα" when the answer is substituted.
 6. Adapt puns and idioms so they sound natural and funny in ${targetLanguage}.
 7. Keep lies under 30 characters.
 
@@ -298,7 +298,7 @@ Source lies (English): ${JSON.stringify(sourceLies)}
 
 Task:
 1. Translate the lies into ${targetLanguage}.
-2. Make every lie pass the substitution test in the localized fact. If the fact has an article before the blank, either remove it (if the output format allows) or make every lie agree with it.
+2. Make every lie a complete phrase with its own article/determiner, and pass the substitution test in the localized fact. Do not leave bare nouns when the source had an article before the blank.
 3. For Greek, bare noun phrases are preferred; do not leave an article directly before <BLANK>.
 4. Adapt rather than translate literally when needed.
 5. Keep the fact and answer unchanged.

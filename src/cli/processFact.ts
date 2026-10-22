@@ -9,7 +9,7 @@ import {
   scoreFact,
   triageFact,
 } from '../core/agents/index';
-import { answerTooLong, stableId, validateQuestion } from '../core/agents/validate';
+import { answerTooLong, stableId, validateLocalizationOptions, validateQuestion } from '../core/agents/validate';
 import type { TokenUsage, TriageAction, TriviaFact } from '../core/types';
 import { EMPTY_USAGE, addUsage } from '../core/llm/usage';
 import type { Candidate, RunOptions, UsageSink } from './types';
@@ -84,12 +84,14 @@ export async function processFact(
       },
       { minLies: 5, language: options.language, maxAnswerWords: 8, maxAnswerChars: 60 },
     );
-    if (!preGate.ok) {
+    const optionGate = validateLocalizationOptions(fact, localized, options.language);
+    const preErrors = [...preGate.errors, ...optionGate.errors];
+    if (preErrors.length > 0) {
       const fixed = await fixTranslation(
         localized.fact,
         localized.answer,
         localized.lies,
-        preGate.errors,
+        preErrors,
         options.language,
         fact,
       );
@@ -128,7 +130,10 @@ export async function processFact(
       },
       { minLies: 5, language: options.language, maxAnswerWords: 8, maxAnswerChars: 60 },
     );
-    if (!gate.ok) skip(`localization gate: ${gate.errors.join('; ')}`);
+    const finalOptions = validateLocalizationOptions(fact, localized, options.language);
+    if (!gate.ok || !finalOptions.ok) {
+      skip(`localization gate: ${[...gate.errors, ...finalOptions.errors].join('; ')}`);
+    }
 
     return [
       {

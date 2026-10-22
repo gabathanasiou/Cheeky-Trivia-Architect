@@ -171,6 +171,32 @@ export function validateQuestion(
   return { ok: errors.length === 0, errors, warnings };
 }
 
+export function validateLocalizationOptions(
+  source: { fact: string; answer: string },
+  localized: { fact: string; answer: string; lies: string[] },
+  language: string,
+): GateResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (/greek|ελλην/i.test(language)) {
+    const sourceNeedsArticle = /(?:^|\s)(a|an|the|one)\s+<blank>/i.test(source.fact);
+    if (sourceNeedsArticle) {
+      const determiner = /^(ένα|έναν|μία|μια|ένας|ο|η|το|τον|την|της|του|των)(?=\s|$)/i;
+      if (!determiner.test(localized.answer.trim())) {
+        errors.push('Greek answer must include its own article/determiner');
+      }
+      localized.lies.forEach((lie, index) => {
+        if (!determiner.test(lie.trim())) {
+          errors.push(`Greek lie ${index + 1} must include its own article/determiner`);
+        }
+      });
+    }
+  }
+
+  return { ok: errors.length === 0, errors, warnings };
+}
+
 export function stableId(prefix: string, text: string): string {
   let hash = 2166136261;
   for (let i = 0; i < text.length; i += 1) {

@@ -6,6 +6,7 @@ import {
   normalize,
   stableId,
   validateFact,
+  validateLocalizationOptions,
   validateQuestion,
 } from './validate';
 
@@ -174,6 +175,48 @@ describe('answer length helpers', () => {
     expect(answerWordCount('  one   two  ')).toBe(2);
     expect(answerTooLong('one two three four five')).toBe(false);
     expect(answerTooLong('one two three four five six')).toBe(true);
+  });
+});
+
+describe('validateLocalizationOptions', () => {
+  it('requires the article inside Greek options when the source had one before the blank', () => {
+    const result = validateLocalizationOptions(
+      { fact: 'In Switzerland, it is illegal to own just one <BLANK>.', answer: 'Guinea Pig' },
+      {
+        fact: 'Στην Ελβετία είναι παράνομο να έχεις μόνο <BLANK>.',
+        answer: 'ινδικό χοιρίδιο',
+        lies: ['σοκολάτα', 'ρολόι με κούκο', 'τραπεζικό λογαριασμό', 'ουδέτερη γνώμη', 'τρόπαιο σκι'],
+      },
+      'Greek',
+    );
+    expect(result.ok).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it('accepts Greek options with their own articles', () => {
+    const result = validateLocalizationOptions(
+      { fact: 'In Switzerland, it is illegal to own just one <BLANK>.', answer: 'Guinea Pig' },
+      {
+        fact: 'Στην Ελβετία είναι παράνομο να έχεις μόνο <BLANK>.',
+        answer: 'ένα ινδικό χοιρίδιο',
+        lies: ['μία σοκολάτα', 'ένα ρολόι με κούκο', 'έναν τραπεζικό λογαριασμό', 'μία ουδέτερη γνώμη', 'ένα τρόπαιο σκι'],
+      },
+      'Greek',
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it('does not force an article when the source blank is a verb phrase', () => {
+    const result = validateLocalizationOptions(
+      { fact: 'The inventor of the Pringles can is now <BLANK>.', answer: 'Buried in a Pringles can' },
+      {
+        fact: 'Ο εφευρέτης του κουτιού Pringles τώρα <BLANK>.',
+        answer: 'είναι θαμμένος σε ένα κουτί Pringles',
+        lies: ['αποφεύγει τους σωλήνες', 'είναι αλλεργικός στο αλάτι', 'είναι επιθεωρητής υγείας', 'ζει σε μια γιούρτα', 'είναι τσάρος του ποπ κορν'],
+      },
+      'Greek',
+    );
+    expect(result.ok).toBe(true);
   });
 });
 
