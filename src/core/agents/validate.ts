@@ -21,6 +21,17 @@ export interface GateResult {
 
 const BANNED_ANSWERS = new Set(['none of these', 'all of these', 'true', 'false']);
 
+export const MAX_ANSWER_WORDS = 5;
+export const MAX_ANSWER_CHARS = 45;
+
+export function answerWordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+export function answerTooLong(text: string): boolean {
+  return answerWordCount(text) > MAX_ANSWER_WORDS || text.trim().length > MAX_ANSWER_CHARS;
+}
+
 export function normalize(text: string): string {
   return text
     .replace(/[‘’]/g, "'")
@@ -86,13 +97,21 @@ export function validateFact(
 
 export function validateQuestion(
   question: QuestionCandidate,
-  options: { minLies?: number; maxLies?: number; maxLieLength?: number } = {},
+  options: {
+    minLies?: number;
+    maxLies?: number;
+    maxLieLength?: number;
+    maxAnswerWords?: number;
+    maxAnswerChars?: number;
+  } = {},
 ): GateResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const minLies = options.minLies ?? 5;
   const maxLies = options.maxLies ?? 15;
   const maxLieLength = options.maxLieLength ?? 30;
+  const maxAnswerWords = options.maxAnswerWords ?? MAX_ANSWER_WORDS;
+  const maxAnswerChars = options.maxAnswerChars ?? MAX_ANSWER_CHARS;
 
   const fact = question.fact.trim();
   const answer = question.answer.trim();
@@ -100,6 +119,12 @@ export function validateQuestion(
 
   if (blankCount !== 1) errors.push(`expected exactly one <BLANK>, found ${blankCount}`);
   if (!answer) errors.push('answer is empty');
+  if (answerWordCount(answer) > maxAnswerWords) {
+    errors.push(`answer too long (${answerWordCount(answer)} words, max ${maxAnswerWords})`);
+  }
+  if (answer.length > maxAnswerChars) {
+    errors.push(`answer too long (${answer.length} chars, max ${maxAnswerChars})`);
+  }
   if (normalize(fact).includes(normalize(answer))) {
     errors.push('answer is leaked in the fact');
   }

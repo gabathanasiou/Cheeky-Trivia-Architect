@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  answerTooLong,
+  answerWordCount,
   dedupeKey,
   normalize,
   stableId,
@@ -94,6 +96,35 @@ describe('validateQuestion', () => {
     expect(validateQuestion({ ...question, fact: 'The Thames Tunnel flooded twice, in <BLANK>.' }).ok).toBe(false);
   });
 
+  it('rejects answers longer than five words', () => {
+    const result = validateQuestion({
+      ...question,
+      answer: 'a very long answer with too many words',
+      fact: 'Something happened in <BLANK>.',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('answer too long');
+  });
+
+  it('accepts an answer at the five-word boundary', () => {
+    const result = validateQuestion({
+      ...question,
+      answer: 'one two three four five',
+      fact: 'Something happened in <BLANK>.',
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects answers longer than the character cap', () => {
+    const result = validateQuestion({
+      ...question,
+      answer: 'abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz',
+      fact: 'Something happened in <BLANK>.',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('answer too long');
+  });
+
   it('rejects duplicate and overlong lies', () => {
     expect(
       validateQuestion({
@@ -107,6 +138,15 @@ describe('validateQuestion', () => {
         lies: ['a very long lie that definitely exceeds the thirty character cap', 'once', 'twice', 'never', 'x'],
       }).ok,
     ).toBe(false);
+  });
+});
+
+describe('answer length helpers', () => {
+  it('counts words and flags long answers', () => {
+    expect(answerWordCount('one two three')).toBe(3);
+    expect(answerWordCount('  one   two  ')).toBe(2);
+    expect(answerTooLong('one two three four five')).toBe(false);
+    expect(answerTooLong('one two three four five six')).toBe(true);
   });
 });
 

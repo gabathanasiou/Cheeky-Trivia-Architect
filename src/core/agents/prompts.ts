@@ -28,6 +28,7 @@ Rules:
 7. Allowed categories: History, Science, Tech Oops, Irony, Bizarre Records, People, General.
 8. Keep each quote under 300 characters, but copy it exactly.
 9. Do not use a pure number or date as the answer; pick a fact whose answer is a person, object, place, or phrase.
+10. Prefer facts whose answer is a short phrase of at most 5 words; the Architect must be able to blank it cleanly.
 
 Return JSON: { "facts": [{ "statement": "...", "answer": "...", "quote": "...", "category": "...", "period": "historical", "confidence": 0.9 }] }`;
 
@@ -60,6 +61,7 @@ Rules:
 2. The correct answer must appear verbatim (case-insensitive) in the statement.
 3. Do not include the other choices.
 4. Do not write "None of these", "All of these", "True", or "False" as the answer.
+4b. The answer should be a short phrase (at most 5 words / 45 characters).
 5. If the source is ambiguous, disputed, or cannot be stated as one clean fact, return status "reject" with a short reason.
 6. Set confidence from 0 to 1.
 
@@ -123,6 +125,7 @@ Task:
 Guidelines:
 - The sentence must be grammatically correct with the blank.
 - newAnswer must be the exact text that fills the blank to make the sentence true.
+- newAnswer is at most 5 words / 45 characters; longer answers are rejected.
 - Return JSON: { "newFact": "...", "newAnswer": "..." }`;
 }
 
@@ -165,6 +168,7 @@ Scoring:
 - Does it allow WTF-style lies that take the fact in a totally different direction?
 - Is the grammar seamless?
 - Score below 7 if the blank hides a boring number or date.
+- Score below 7 if the answer is longer than 5 words or 45 characters.
 - Score above 8 if the blank hides the punchline or the irony.
 
 Return JSON: { "score": 1-10, "feedback": "short feedback, only when score < 7" }`;

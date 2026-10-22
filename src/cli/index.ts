@@ -15,6 +15,7 @@ import {
   scoreFact,
 } from '../core/agents/index';
 import {
+  answerTooLong,
   isDuplicate,
   remember,
   stableId,
@@ -238,11 +239,21 @@ async function processSection(
     );
     onUsage('critic', critique.usage);
 
-    if (critique.data.score < 7) {
+    const tooLong = answerTooLong(placement.data.newAnswer);
+    if (critique.data.score < 7 || tooLong) {
+      const feedback = [
+        critique.data.feedback ?? '',
+        tooLong
+          ? `The answer "${placement.data.newAnswer}" is too long; it must be at most 5 words and 45 characters. Choose a shorter blank.`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+
       placement = await optimizePlacement(
         current,
         [placement.data.newFact],
-        critique.data.feedback ?? '',
+        feedback,
         options.language,
       );
       onUsage('architect', placement.usage);
@@ -254,6 +265,10 @@ async function processSection(
       onUsage('critic', critique.usage);
     }
 
+    if (answerTooLong(placement.data.newAnswer)) {
+      console.log(`  skip [${section.index}] answer too long: ${placement.data.newAnswer}`);
+      continue;
+    }
     if (critique.data.score < 6) {
       console.log(`  skip [${section.index}] critic score ${critique.data.score}: ${placement.data.newFact}`);
       continue;
