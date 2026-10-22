@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  --color-neon-purple: #b026ff;
+  --color-neon-blue: #00ccff;
+  --color-neon-green: #00ff99;
+  --color-neon-pink: #ff00cc;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}

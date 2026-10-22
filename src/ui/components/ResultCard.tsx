@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { ProcessedItem, TriviaFact, TriageAction } from '../types';
+import { ProcessedItem, TriviaFact, TriageAction } from '../../core/types';
 import { Sparkles, Save, X, Loader2, Copy, ChevronDown, ChevronUp, DollarSign, FileText, CheckCircle2, AlertTriangle, Lightbulb, RefreshCw, RotateCcw, CheckSquare, Square, BrainCircuit, Dna, ArrowLeftRight, Trash2, Scissors, Globe } from 'lucide-react';
 import { AgentVisualizer } from './AgentVisualizer';
 

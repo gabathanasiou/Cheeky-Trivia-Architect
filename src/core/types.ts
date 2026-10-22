@@ -21,6 +21,8 @@ export interface TokenUsage {
   candidatesTokens: number;
   totalTokens: number;
   estimatedCost: number; // In USD
+  cacheHitTokens?: number;
+  cacheMissTokens?: number;
 }
 
 export interface ProcessedItem {

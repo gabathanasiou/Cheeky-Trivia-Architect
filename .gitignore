@@ -12,6 +12,25 @@ dist
 dist-ssr
 *.local
 
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Local data: sources, SQLite, exports
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Test output
+test-results/
+playwright-report/
+blob-report/
+coverage/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

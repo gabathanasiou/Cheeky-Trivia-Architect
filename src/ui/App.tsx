@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Play, Sparkles, RefreshCw, Copy, Layers, Globe, ChevronLeft, ChevronRight, Settings, Download, Trash2, StopCircle, FileText, Zap, CheckSquare, Square, Clock, ListChecks, CheckCircle, Hourglass, Power } from 'lucide-react';
-import { AgentLog, ProcessedItem, TriviaFact, TokenUsage, SystemMode } from './types';
+import { AgentLog, AgentResponseLocalization, ProcessedItem, TriviaFact, TokenUsage, SystemMode } from '../core/types';
 import { AgentVisualizer } from './components/AgentVisualizer';
 import { ResultCard } from './components/ResultCard';
-import * as AgentService from './services/geminiService';
+import * as AgentService from './services/agentClient';
 
 const DEFAULT_INPUT = `[
   {
@@ -91,7 +91,9 @@ function App() {
   // Settings
   const [tokenLimit, setTokenLimit] = useState(initialState?.tokenLimit || 100000);
   const [concurrency, setConcurrency] = useState(initialState?.concurrency || 5);
-  const [totalTokenUsage, setTotalTokenUsage] = useState(initialState?.totalTokenUsage || { count: 0, cost: 0 });
+  const [totalTokenUsage, setTotalTokenUsage] = useState<{ count: number; cost: number }>(
+    initialState?.totalTokenUsage || { count: 0, cost: 0 },
+  );
   const [shouldStop, setShouldStop] = useState(false);
 
   // --------------------------------------------------------
@@ -500,8 +502,16 @@ function App() {
   // INITIALIZER
   // --------------------------------------------------------
   const handleStartQueue = async () => {
-    if (!process.env.API_KEY) {
-      alert("Please set the API_KEY environment variable.");
+    const health = await fetch('/api/health')
+      .then((r) => r.json() as Promise<{ hasKey?: boolean; mock?: boolean; model?: string }>)
+      .catch(() => null);
+
+    if (!health) {
+      alert('The local Architect server is not running. Start it with `npm run dev`.');
+      return;
+    }
+    if (!health.hasKey && !health.mock) {
+      alert('DEEPSEEK_API_KEY is not set. Add it to .env.local, then restart the server.');
       return;
     }
 

@@ -1,0 +1,124 @@
+import { describe, expect, it } from 'vitest';
+import {
+  dedupeKey,
+  normalize,
+  stableId,
+  validateFact,
+  validateQuestion,
+} from './validate';
+
+describe('normalize', () => {
+  it('collapses whitespace, case and smart quotes', () => {
+    expect(normalize('  The  “Thames”\nTunnel ')).toBe('the "thames" tunnel');
+  });
+});
+
+describe('validateFact', () => {
+  const fact = {
+    statement: 'The Thames Tunnel flooded in 1828 and six workmen were killed.',
+    answer: 'six workmen',
+    category: 'History',
+  };
+
+  it('accepts a clean fact', () => {
+    const result = validateFact(fact);
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects an answer that is missing from the statement', () => {
+    const result = validateFact({ ...fact, answer: 'seven workmen' });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('does not appear');
+  });
+
+  it('rejects a question', () => {
+    const result = validateFact({ ...fact, statement: 'Did the Thames Tunnel flood?' });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects banned answers', () => {
+    const result = validateFact({
+      statement: 'The answer is None of these.',
+      answer: 'None of these',
+      category: 'General',
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('checks the quote against the section when provided', () => {
+    const section = 'The river broke in a second time; six of the workmen were lost.';
+    expect(validateFact({ ...fact, quote: 'six of the workmen were lost' }, { sectionText: section }).ok).toBe(true);
+    expect(validateFact({ ...fact, quote: 'seven workmen died' }, { sectionText: section }).ok).toBe(false);
+  });
+
+  it('warns on numeric answers', () => {
+    const result = validateFact({
+      statement: 'The tunnel cost 600,000 pounds.',
+      answer: '600,000',
+      category: 'History',
+    });
+    expect(result.warnings.join(' ')).toContain('number');
+  });
+
+  it('can reject numeric answers for the game bank', () => {
+    const result = validateFact(
+      {
+        statement: 'The tunnel cost 600,000 pounds.',
+        answer: '600,000',
+        category: 'History',
+      },
+      { rejectNumericAnswers: true },
+    );
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe('validateQuestion', () => {
+  const question = {
+    fact: 'The Thames Tunnel flooded <BLANK> in 1828.',
+    answer: 'twice',
+    category: 'History',
+    lies: ['once', 'three times', 'never', 'on a Tuesday', 'during a party'],
+  };
+
+  it('accepts a clean question', () => {
+    expect(validateQuestion(question).ok).toBe(true);
+  });
+
+  it('requires exactly one blank', () => {
+    expect(validateQuestion({ ...question, fact: 'The Thames Tunnel flooded in 1828.' }).ok).toBe(false);
+    expect(validateQuestion({ ...question, fact: 'The <BLANK> Tunnel <BLANK> in 1828.' }).ok).toBe(false);
+  });
+
+  it('rejects a leaked answer', () => {
+    expect(validateQuestion({ ...question, fact: 'The Thames Tunnel flooded twice, in <BLANK>.' }).ok).toBe(false);
+  });
+
+  it('rejects duplicate and overlong lies', () => {
+    expect(
+      validateQuestion({
+        ...question,
+        lies: ['once', 'Once', 'three times', 'never', 'on a Tuesday'],
+      }).ok,
+    ).toBe(false);
+    expect(
+      validateQuestion({
+        ...question,
+        lies: ['a very long lie that definitely exceeds the thirty character cap', 'once', 'twice', 'never', 'x'],
+      }).ok,
+    ).toBe(false);
+  });
+});
+
+describe('dedupe helpers', () => {
+  it('produces the same key for punctuation/case variants', () => {
+    expect(dedupeKey('A group of lions is called a pride.')).toBe(
+      dedupeKey('a group of lions is called a pride'),
+    );
+  });
+
+  it('produces a stable id', () => {
+    expect(stableId('book', 'same text')).toBe(stableId('book', 'same text'));
+    expect(stableId('book', 'same text')).not.toBe(stableId('book', 'different text'));
+  });
+});

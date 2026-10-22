@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { AgentLog } from '../types';
+import { AgentLog } from '../../core/types';
 import { Terminal, CheckCircle2, XCircle, Loader2, Bot } from 'lucide-react';
 
 interface AgentVisualizerProps {
