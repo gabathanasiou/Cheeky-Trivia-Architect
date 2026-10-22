@@ -261,6 +261,16 @@ export const JobsView: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex gap-2">
+                    <a
+                      href="#"
+                      onClick={() => {
+                        localStorage.setItem('architect_active_job', detail.job.id);
+                        localStorage.setItem('architect_pin_job', detail.job.id);
+                      }}
+                      className="flex items-center gap-1 text-xs font-bold bg-neon-blue/10 text-neon-blue border border-neon-blue/40 rounded-lg px-3 py-2"
+                    >
+                      Open in Optimizer
+                    </a>
                     {detail.job.status === 'running' && (
                       <>
                         <button

@@ -41,6 +41,14 @@ interface JobRunRow {
   completion_tokens?: number;
 }
 
+interface JobListItem {
+  id: string;
+  source: string;
+  status: string;
+  done: number;
+  total: number;
+}
+
 interface JobDetail {
   job: {
     id: string;
@@ -179,6 +187,7 @@ function App() {
     }
   });
   const [jobInfo, setJobInfo] = useState<JobDetail['job'] | null>(null);
+  const [jobsList, setJobsList] = useState<JobListItem[]>([]);
 
   // --------------------------------------------------------
   // PERSISTENCE
@@ -209,6 +218,49 @@ function App() {
           localStorage.removeItem(STORAGE_KEY);
       }
   };
+
+  // --------------------------------------------------------
+  // JOB LIST / AUTO-SELECT THE LIVE CLI JOB
+  // --------------------------------------------------------
+  useEffect(() => {
+    let cancelled = false;
+    let firstLoad = true;
+
+    const load = async () => {
+      try {
+        const response = await fetch('/api/jobs');
+        if (!response.ok) return;
+        const data = (await response.json()) as { jobs: JobListItem[] };
+        if (cancelled) return;
+        setJobsList(data.jobs);
+
+        if (firstLoad) {
+          firstLoad = false;
+          const stored = localStorage.getItem('architect_active_job');
+          const storedJob = data.jobs.find((job) => job.id === stored);
+          const pinned = localStorage.getItem('architect_pin_job');
+          const pinnedJob = data.jobs.find((job) => job.id === pinned);
+          const running = data.jobs.find(
+            (job) => job.status === 'running' || job.status === 'pending',
+          );
+          const storedIsLive =
+            storedJob?.status === 'running' || storedJob?.status === 'pending';
+          const pick =
+            pinnedJob ?? (storedIsLive ? storedJob : running ?? storedJob ?? data.jobs[0]);
+          if (pick) setActiveJobId(pick.id);
+        }
+      } catch {
+        // The API may still be starting; the interval retries.
+      }
+    };
+
+    void load();
+    const timer = setInterval(() => void load(), 5_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   // --------------------------------------------------------
   // BACKGROUND JOB POLLER
@@ -291,6 +343,7 @@ function App() {
       if (!response.ok || !data.job) {
         throw new Error(data.error ?? `Failed to create job (${response.status})`);
       }
+      localStorage.removeItem('architect_pin_job');
       setActiveJobId(data.job.id);
       setJobInfo(null);
       setProcessedItems([]);
@@ -472,6 +525,23 @@ function App() {
             )}
           </div>
           <div className="flex items-center gap-3">
+            <select
+              value={activeJobId}
+              onChange={(event) => {
+                localStorage.removeItem('architect_pin_job');
+                setJobInfo(null);
+                setProcessedItems([]);
+                setLogs([]);
+                setActiveJobId(event.target.value);
+              }}
+              className="text-[10px] bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-300 max-w-[22rem]"
+            >
+              {jobsList.map((job) => (
+                <option key={job.id} value={job.id}>
+                  {job.source} · {job.status} · {job.done}/{job.total}
+                </option>
+              ))}
+            </select>
             <a href="#jobs" className="text-xs font-bold text-neon-blue hover:text-white">
               Open in Jobs →
             </a>
