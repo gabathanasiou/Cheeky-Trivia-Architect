@@ -24,7 +24,8 @@
     "roadmap": "node scripts/roadmap.mjs",
     "roadmap:check": "node scripts/roadmap.mjs check",
     "lint:docs": "node scripts/check-doc-budget.mjs",
-    "lint": "npm run roadmap:check && npm run lint:docs && npm run lint:tests && npm run lint:types"
+    "lint": "npm run roadmap:check && npm run lint:docs && npm run lint:tests && npm run lint:types",
+    "merge:game": "tsx scripts/merge-to-bamboozle.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
