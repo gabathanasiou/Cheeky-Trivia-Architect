@@ -88,7 +88,7 @@ path. There is no in-browser executor. A fact with fewer than five lies is force
 
 ## Comedy sense
 
-The blank is the punchline, not the plumbing. The full rubric and good/bad
+The blank is wherever the funniest lie can land — punchline, subject or setup. The full rubric and good/bad
 examples are in [COMEDY.md](COMEDY.md). The fun scorer rejects dry facts below 7;
 the Comedy Critic keeps 8+, re-blanks 7, and rejects below 7. It is deliberately
 strict: most technically-correct blanks are not funny.

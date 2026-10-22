@@ -310,6 +310,7 @@ app.post('/api/agent', async (req, res) => {
           (args[2] as string[] | undefined) ?? [],
           (args[3] as string[] | undefined) ?? [],
           String(args[4] ?? 'Greek'),
+          args[5] as TriviaFact | undefined,
         );
         break;
       default:

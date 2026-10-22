@@ -73,11 +73,36 @@ export async function processFact(
     track('localize', bridge.usage);
 
     let localized = bridge.data;
+
+    // Deterministic checks first (blank/answer/lies, Greek article trap).
+    const preGate = validateQuestion(
+      {
+        fact: localized.fact,
+        answer: localized.answer,
+        category,
+        lies: localized.lies,
+      },
+      { minLies: 5, language: options.language, maxAnswerWords: 8, maxAnswerChars: 60 },
+    );
+    if (!preGate.ok) {
+      const fixed = await fixTranslation(
+        localized.fact,
+        localized.answer,
+        localized.lies,
+        preGate.errors,
+        options.language,
+        fact,
+      );
+      track('fixer', fixed.usage);
+      localized = fixed.data;
+    }
+
     const linguist = await checkGrammar(
       localized.fact,
       localized.answer,
       localized.lies,
       options.language,
+      fact,
     );
     track('linguist', linguist.usage);
 
@@ -88,6 +113,7 @@ export async function processFact(
         localized.lies,
         linguist.data.issues,
         options.language,
+        fact,
       );
       track('fixer', fixed.usage);
       localized = fixed.data;
@@ -100,7 +126,7 @@ export async function processFact(
         category,
         lies: localized.lies,
       },
-      { minLies: 5 },
+      { minLies: 5, language: options.language, maxAnswerWords: 8, maxAnswerChars: 60 },
     );
     if (!gate.ok) skip(`localization gate: ${gate.errors.join('; ')}`);
 

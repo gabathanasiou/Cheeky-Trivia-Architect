@@ -103,6 +103,7 @@ export function validateQuestion(
     maxLieLength?: number;
     maxAnswerWords?: number;
     maxAnswerChars?: number;
+    language?: string;
   } = {},
 ): GateResult {
   const errors: string[] = [];
@@ -131,6 +132,13 @@ export function validateQuestion(
   if (/<blank>/i.test(answer)) errors.push('answer contains <BLANK>');
   if (!fact.includes('<BLANK>')) warnings.push('blank is not uppercase <BLANK>');
   if (!question.category.trim()) errors.push('category is empty');
+
+  if (options.language && /greek|ελλην/i.test(options.language)) {
+    const articleBeforeBlank = /(?:^|\s)(ένα|έναν|μία|μια|ο|η|το|τον|την|της|του|των)\s+<blank>/i.test(fact);
+    if (articleBeforeBlank) {
+      errors.push('Greek article directly before <BLANK>; rewrite so the blank takes a bare phrase');
+    }
+  }
 
   if (question.lies.length < minLies) {
     errors.push(`expected at least ${minLies} lies, found ${question.lies.length}`);

@@ -26,20 +26,25 @@ grammar exercise. It is the **punchline position**.
 1. **The fact must have a funny core.** A surprising, ironic, absurd, or
    "I can't believe that's true" detail. Dry biography, tributes, and "X was born in
    Y" are not eligible. Reject the fact; do not force a blank.
-2. **Blank the funny detail, not the plumbing.** The blank should hide the absurd
-   object, action, consequence, or punchline. Never blank:
-   - dates, years, numbers or percentages
-   - connectors ("because", "although", "in")
-   - generic nouns ("people", "thing", "way", "time")
-   - long descriptive clauses whose removal leaves a boring sentence
+2. **Blank the funniest replaceable detail — anywhere.** The blank can hide the
+   subject, object, action, consequence, setup, or punchline. Position is not the
+   rule; the lie test is. A blank in the "plumbing" can be the funniest one:
+   - "A group of `<BLANK>` is called a murder." -> **crows** ("accountants",
+     "lawyers", "teenagers").
+   - "The fear of `<BLANK>` is called Lachanophobia." -> **vegetables**
+     ("laughing", "shoelaces", "lunch").
+   High-risk positions: dates, years, numbers, percentages, bare connectors, vague
+   nouns. They can work, but only if two concrete, funny lies are immediately
+   obvious. If the lies are just synonyms or random numbers, move the blank.
 3. **A wrong answer must create a picture.** The best lies are concrete, visual,
    plausible-but-absurd. "A flamingo" is funnier than "a different animal" because
    you can see it.
 4. **Specificity beats generality.** One precise detail is funnier than three vague
    adjectives. Keep the setup short; remove throat-clearing and unnecessary
    biography.
-5. **The answer is the last beat.** Put the blank near the end where the sentence
-   allows it. The answer should land as the reveal, not the setup.
+5. **Prefer the last beat, but do not force it.** Put the blank near the end when
+   the answer is the punchline. A subject/setup blank can score 9 if the lies are
+   funny; judge by the lie test, not the position.
 
 ## Good vs bad blanks
 
@@ -49,6 +54,13 @@ grammar exercise. It is the **punchline position**.
 > **Answer:** Guinea Pig
 > **Why:** the blank is the absurd thing; "chocolate bar", "cuckoo clock", "bank
 > account" all create a concrete image.
+
+**Good** — the blank hides the subject, not the punchline:
+
+> A group of `<BLANK>` is called a murder.
+> **Answer:** crows
+> **Why:** the blank is the subject; "accountants", "lawyers", "teenagers" make the
+> setup pay off.
 
 **Good** — the blank hides the ironic reward:
 
@@ -109,9 +121,10 @@ short and the fact is strong; below 7 is rejected after one re-blank attempt.
 - **Extractor** — only extract facts with a funny/absurd/ironic core. Reject dry
   biography and "X was born" facts.
 - **Fun scorer** — rate the fact before spending lie-generation tokens. Reject < 7.
-- **Architect** — place the blank on the funny detail, near the end, ≤5 words /
-  45 characters. If the fact has no funny blank, return the best attempt and let the
-  Critic reject it.
+- **Architect** — place the blank where the lie test is strongest. The subject,
+  setup, object or punchline can win; prefer the end only when it is the punchline.
+  Answer ≤5 words / 45 characters. If the fact has no funny blank, return the best
+  attempt and let the Critic reject it.
 - **Critic** — score the joke, not the grammar. Name the funnier place to blank in
   the feedback. Most blanks are 6 or below; 8+ needs an immediate "I can see the
   lies" reaction.

@@ -97,7 +97,7 @@ Decision:
 Return JSON: { "action": "KEEP_ALL" | "GENERATE_LIES" | "FULL_OPTIMIZE" }`;
 }
 
-export const ARCHITECT_SYSTEM = `You are a comedy architect for a bluffing trivia game. A fact is only usable if a wrong answer makes a concrete, funny image. You place the <BLANK> on the punchline, not on the plumbing.`;
+export const ARCHITECT_SYSTEM = `You are a comedy architect for a bluffing trivia game. You place the <BLANK> wherever a wrong answer creates the funniest semantic shift — the subject, the object, the action, the consequence, the setup, or the punchline. Position is not the rule; the lie test is.`;
 
 export function architectPrompt(
   currentFact: TriviaFact,
@@ -120,17 +120,19 @@ ${context}
 Task: rewrite the true statement so the <BLANK> hides the funniest detail.
 
 Comedy rules (the whole point):
-1. Blank the FUNNY DETAIL: the absurd object, action, consequence, or punchline. Never blank a date, year, number, percentage, connector, generic noun, or a long descriptive clause.
-2. A wrong answer must create a picture. If you cannot immediately imagine two concrete, funny lies, the blank is in the wrong place.
-3. Keep the sentence short, specific and factual. Remove throat-clearing and biography. Do not explain the joke.
-4. Put the blank near the end where possible. The answer is the reveal, not the setup.
-5. If the funniest thing is the subject, blank the subject. If it is the consequence, blank the consequence.
+1. Blank the funniest replaceable detail. It can be the subject, the absurd object, the action, the consequence, the setup, or the punchline. A setup/subject blank can be the joke.
+2. The lie test: imagine two concrete wrong answers. If they make you smile, keep the blank even if it is early in the sentence. If they are only synonyms or random numbers, move the blank.
+3. High-risk positions: dates, years, numbers, percentages, bare connectors, vague nouns. They can work if the lies are specific and funny; otherwise move the blank. A long descriptive clause is almost always wrong.
+4. Keep the sentence short, specific and factual. Remove throat-clearing and biography. Do not explain the joke.
+5. Prefer the answer near the end when it is the punchline, but do not force it. A subject/setup blank can score 9.
 6. The new answer must be at most 5 words / 45 characters and must be the exact text that fills the blank.
 7. The rewrite must stay factually correct.
 
 Examples:
 - Good: "In Switzerland, it is illegal to own just one <BLANK>." -> "Guinea Pig". The blank is the absurd object.
 - Good: "The inventor of the microwave only received <BLANK> for his discovery." -> "$2". The blank is the ironic reward.
+- Good setup blank: "A group of <BLANK> is called a murder." -> "crows". The blank is the subject; lies "accountants", "lawyers", "teenagers" are funny.
+- Good subject blank: "The fear of <BLANK> is called Lachanophobia." -> "vegetables". Lies "laughing", "shoelaces", "lunch" make the setup pay off.
 - Bad: "In 1828, the river filled the tunnel in <BLANK>." -> "fifteen minutes". A number is not a joke.
 - Bad: "Dr. Darwin projected a steam-carriage that was to use <BLANK>." -> "bird-like wings driven by high-pressure steam". A long technical clause; the funny object is the carriage.
 - Better: "Dr. Darwin projected an <BLANK> that was to use bird-like wings powered by steam." -> "aerial steam-carriage".
@@ -174,10 +176,10 @@ Answer: "${answer}"
 
 You are the last gate before a party game. A blank is GOOD only when:
 1. The fact has a surprising, ironic, or absurd core. A dry biography is not a joke.
-2. The blank hides the funny detail, not a date/number/connector/generic noun/long descriptive clause.
+2. The blank can be in the subject, setup, object or punchline. Do not penalise a blank just for being early. A date/number/connector/vague noun is high-risk, not an automatic reject; it passes only if the lies are concrete and funny.
 3. You can immediately imagine two concrete, visual, plausible-but-absurd lies.
 4. The sentence is short and specific; no throat-clearing.
-5. The answer is the reveal, ideally near the end.
+5. The answer is the reveal; it can be early if the lies make the setup pay off.
 
 Calibration examples:
 - "In 1828, the river filled the tunnel in <BLANK>." / "fifteen minutes" -> number, no image; score 2.
@@ -186,12 +188,14 @@ Calibration examples:
 - "Dr. Darwin projected an <BLANK> that was to use bird-like wings powered by steam." / "aerial steam-carriage" -> the blank is the absurd object; score 9.
 - "In Switzerland, it is illegal to own just one <BLANK>." / "Guinea Pig" -> the blank is the absurd thing; score 9.
 - "The inventor of the microwave only received <BLANK> for his discovery." / "$2" -> ironic reward; score 9.
+- "A group of <BLANK> is called a murder." / "crows" -> subject blank; lies "accountants", "lawyers", "teenagers" are funny; score 9.
+- "The fear of <BLANK> is called Lachanophobia." / "vegetables" -> subject blank; the lies carry the joke; score 9.
 
 Score 1-10:
-- 9-10: retell-at-a-party; the blank is the punchline; two funny lies are obvious.
+- 9-10: retell-at-a-party; two funny lies are obvious, wherever the blank sits.
 - 7-8: strong; a good lie can land; the blank is a real detail.
 - 5-6: mildly interesting; the blank is okay but not the funniest place.
-- 3-4: dry fact or blank on a date/number/connector/generic noun.
+- 3-4: dry fact, or a date/number/connector/vague noun whose lies are just synonyms or random values.
 - 1-2: no joke possible.
 
 Also reject if the answer is longer than 5 words or 45 characters.
@@ -247,7 +251,7 @@ Task:
 Return JSON: { "fixedLies": ["...", "..."] } with exactly 5 strings.`;
 }
 
-export const LOCALIZE_SYSTEM = `You are an expert cultural localization specialist. Translate trivia while preserving the <BLANK> tag and grammatical fit.`;
+export const LOCALIZE_SYSTEM = `You are an expert cultural localization specialist. Translate trivia while preserving the <BLANK> tag and making every answer and lie pass the substitution test. In gendered languages, never leave an article directly before <BLANK>.`;
 
 export function localizePrompt(
   fact: TriviaFact,
@@ -269,9 +273,11 @@ ${guidance}
 Task:
 1. Translate the fact, answer, and lies into ${targetLanguage}.
 2. Preserve <BLANK> exactly.
-3. Make the answer and every lie fit the blank grammatically (case, gender, number).
-4. Adapt puns and idioms so they sound natural and funny in ${targetLanguage}.
-5. Keep lies under 30 characters.
+3. SUBSTITUTION TEST: replace <BLANK> with the answer, then with each lie. Every resulting sentence must be grammatical and natural.
+4. Gendered languages: do NOT leave an article directly before <BLANK> (Greek: ένα/έναν/μία/μια/ο/η/το/τον/την/της/του/των + <BLANK>). Rewrite the sentence so the blank accepts a bare noun phrase, e.g. "είναι παράνομο να έχεις μόνο <BLANK>" or "είναι <BLANK>". The answer and lies should then be bare noun phrases.
+5. If the source fact uses "the <BLANK>" or "a <BLANK>", drop the article or move it inside the options so all options agree.
+6. Adapt puns and idioms so they sound natural and funny in ${targetLanguage}.
+7. Keep lies under 30 characters.
 
 Return JSON: { "fact": "...", "answer": "...", "lies": ["..."] }`;
 }
@@ -292,41 +298,55 @@ Source lies (English): ${JSON.stringify(sourceLies)}
 
 Task:
 1. Translate the lies into ${targetLanguage}.
-2. Make them fit the blank grammatically and semantically.
-3. Adapt rather than translate literally when needed.
-4. Keep the fact and answer unchanged.
+2. Make every lie pass the substitution test in the localized fact. If the fact has an article before the blank, either remove it (if the output format allows) or make every lie agree with it.
+3. For Greek, bare noun phrases are preferred; do not leave an article directly before <BLANK>.
+4. Adapt rather than translate literally when needed.
+5. Keep the fact and answer unchanged.
 
 Return JSON: { "fact": "${factContext}", "answer": "${answerContext}", "lies": ["..."] }`;
 }
 
-export const LINGUIST_SYSTEM = `You are a strict linguistic critic. Check grammar, case, gender, and number agreement.`;
+export const LINGUIST_SYSTEM = `You are a strict linguistic critic. Substitute every option into the blank and check whether the resulting sentence is grammatical. Score 9+ only if all substitutions read naturally.`;
 
 export function linguistPrompt(
   factWithBlank: string,
   answer: string,
   lies: string[],
   targetLanguage: string,
+  source?: TriviaFact,
 ): string {
+  const sourceBlock = source
+    ? `Source (English):
+- Fact: "${source.fact}"
+- Answer: "${source.answer}"
+
+`
+    : '';
+
   return `Language: ${targetLanguage}
-Fact: "${factWithBlank}"
+${sourceBlock}Localized fact: "${factWithBlank}"
 Answer: "${answer}"
 Lies: ${JSON.stringify(lies)}
 
 Check:
-1. Case agreement: do the answer and lies match the case required by the blank?
-2. Gender agreement: do adjectives and articles match the context?
-3. Number agreement: singular/plural consistency.
-4. Natural flow: does it sound native?
+0. FIDELITY: does the localized answer mean exactly the same thing as the source answer? If it names a different animal, person, object, number or relationship, score <5 and list it. The localized fact must preserve the source claim.
+1. SUBSTITUTION TEST: replace <BLANK> with the answer, then with each lie. Does every sentence read naturally?
+2. Case agreement: do the answer and lies match the case required by the blank?
+3. Gender agreement: do adjectives and articles match the context?
+4. Number agreement: singular/plural consistency.
+5. Greek article check: an article directly before <BLANK> ("ένα <BLANK>", "ο <BLANK>") is a red flag. If the options disagree in gender, report it and recommend removing the article.
+6. Natural flow: does it sound like a native speaker wrote it?
 
 Score 1-10:
-- 10 = perfect native grammar.
-- below 8 = minor awkwardness.
+- 10 = every substitution is perfect native grammar.
+- 8-9 = minor awkwardness.
+- below 8 = at least one substitution is wrong.
 - below 5 = grammatical errors.
 
 Return JSON: { "score": 1-10, "issues": ["..."] }`;
 }
 
-export const FIXER_SYSTEM = `You are a linguistic surgeon. Repair every reported grammar issue without changing the fact.`;
+export const FIXER_SYSTEM = `You are a linguistic surgeon. Repair every reported grammar issue so every answer and lie passes the substitution test. You may remove an article before the blank or restructure the sentence.`;
 
 export function fixerPrompt(
   factWithBlank: string,
@@ -334,14 +354,23 @@ export function fixerPrompt(
   lies: string[],
   issues: string[],
   targetLanguage: string,
+  source?: TriviaFact,
 ): string {
+  const sourceBlock = source
+    ? `Source (English):
+- Fact: "${source.fact}"
+- Answer: "${source.answer}"
+
+`
+    : '';
+
   return `Language: ${targetLanguage}
-Problematic input:
+${sourceBlock}Problematic input:
 - Fact: "${factWithBlank}"
 - Answer: "${answer}"
 - Lies: ${JSON.stringify(lies)}
 Reported issues: ${JSON.stringify(issues)}
 
-Task: rewrite the content to fix every issue. You may change the sentence structure around the <BLANK> so the options fit better.
+Task: rewrite the content to fix every issue. Preserve the source meaning exactly: never substitute a different animal, person, object, number or relationship. You may change the sentence structure around the <BLANK> so the options fit better.
 Return JSON: { "fact": "...", "answer": "...", "lies": ["..."] }`;
 }

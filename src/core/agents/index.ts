@@ -301,11 +301,12 @@ export async function checkGrammar(
   answer: string,
   lies: string[],
   targetLanguage: string,
+  source?: TriviaFact,
 ): Promise<AgentResult<{ score: number; issues: string[] }>> {
   const result = await callDeepSeek({
     agent: 'linguist',
     system: LINGUIST_SYSTEM,
-    user: linguistPrompt(factWithBlank, answer, lies, targetLanguage),
+    user: linguistPrompt(factWithBlank, answer, lies, targetLanguage, source),
     schema: linguistSchema,
     jsonExample: JSON_EXAMPLES.linguist,
     thinking: false,
@@ -322,11 +323,12 @@ export async function fixTranslation(
   lies: string[],
   issues: string[],
   targetLanguage: string,
+  source?: TriviaFact,
 ): Promise<AgentResult<{ fact: string; answer: string; lies: string[] }>> {
   const result = await callDeepSeek({
     agent: 'fixer',
     system: FIXER_SYSTEM,
-    user: fixerPrompt(factWithBlank, answer, lies, issues, targetLanguage),
+    user: fixerPrompt(factWithBlank, answer, lies, issues, targetLanguage, source),
     schema: localizationSchema,
     jsonExample: JSON_EXAMPLES.fixer,
     thinking: true,

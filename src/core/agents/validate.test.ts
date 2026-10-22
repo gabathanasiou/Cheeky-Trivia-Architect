@@ -125,6 +125,33 @@ describe('validateQuestion', () => {
     expect(result.errors.join(' ')).toContain('answer too long');
   });
 
+  it('rejects a Greek article directly before the blank', () => {
+    const result = validateQuestion(
+      {
+        fact: 'Στην Ελβετία, είναι παράνομο να έχεις μόνο ένα <BLANK>.',
+        answer: 'Ινδικό χοιρίδιο',
+        category: 'Laws',
+        lies: ['Σοκολάτα', 'Κούκος ρολόι', 'Τραπεζικός λογαριασμός', 'Ουδέτερη γνώμη', 'Τρόπαιο σκι'],
+      },
+      { language: 'Greek' },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('Greek article');
+  });
+
+  it('accepts a Greek bare blank', () => {
+    const result = validateQuestion(
+      {
+        fact: 'Στην Ελβετία, είναι παράνομο να έχεις μόνο <BLANK>.',
+        answer: 'Ινδικό χοιρίδιο',
+        category: 'Laws',
+        lies: ['σοκολάτα', 'κούκο ρολόι', 'τραπεζικό λογαριασμό', 'ουδέτερη γνώμη', 'τρόπαιο σκι'],
+      },
+      { language: 'Greek' },
+    );
+    expect(result.ok).toBe(true);
+  });
+
   it('rejects duplicate and overlong lies', () => {
     expect(
       validateQuestion({
