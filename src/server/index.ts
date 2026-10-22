@@ -23,6 +23,7 @@ import {
   type AgentName,
 } from '../core/agents/index';
 import { hasApiKey, isMockMode } from '../core/llm/deepseek';
+import { ArchitectDb } from '../core/db/index';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = Number(process.env.PORT ?? 4101);
@@ -31,6 +32,8 @@ const HOST = process.env.HOST ?? '127.0.0.1';
 const app = express();
 app.use(express.json({ limit: '4mb' }));
 
+const db = new ArchitectDb();
+
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
@@ -38,6 +41,78 @@ app.get('/api/health', (_req, res) => {
     mock: isMockMode(),
     hasKey: hasApiKey(),
   });
+});
+
+app.get('/api/jobs', (_req, res) => {
+  res.json({ jobs: db.listJobs() });
+});
+
+app.get('/api/jobs/:id', (req, res) => {
+  const job = db.getJob(req.params.id);
+  if (!job) {
+    res.status(404).json({ error: 'Job not found' });
+    return;
+  }
+  const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+  const limit = Number(req.query.limit ?? 100);
+  res.json({
+    job,
+    items: db.getItems(req.params.id, {
+      status,
+      limit: Number.isFinite(limit) ? limit : 100,
+    }),
+    runs: db.getRuns(req.params.id),
+    logs: db.getLogs(req.params.id, 50),
+  });
+});
+
+app.post('/api/jobs/:id/pause', (req, res) => {
+  const job = db.getJob(req.params.id);
+  if (!job) {
+    res.status(404).json({ error: 'Job not found' });
+    return;
+  }
+  db.requestPause(req.params.id);
+  db.setJobStatus(req.params.id, 'paused');
+  res.json({ job: db.getJob(req.params.id) });
+});
+
+app.post('/api/jobs/:id/stop', (req, res) => {
+  const job = db.getJob(req.params.id);
+  if (!job) {
+    res.status(404).json({ error: 'Job not found' });
+    return;
+  }
+  db.requestStop(req.params.id);
+  res.json({ job: db.getJob(req.params.id) });
+});
+
+app.get('/api/jobs/:id/events', (req, res) => {
+  const jobId = req.params.id;
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const send = () => {
+    const job = db.getJob(jobId);
+    if (!job) {
+      res.write(`event: error\ndata: ${JSON.stringify({ error: 'Job not found' })}\n\n`);
+      return false;
+    }
+    res.write(`data: ${JSON.stringify(job)}\n\n`);
+    return true;
+  };
+
+  send();
+  const timer = setInterval(() => {
+    if (!send()) {
+      clearInterval(timer);
+      res.end();
+    }
+  }, 1_000);
+
+  req.on('close', () => clearInterval(timer));
 });
 
 app.post('/api/agent', async (req, res) => {

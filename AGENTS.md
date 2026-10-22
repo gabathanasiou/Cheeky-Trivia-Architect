@@ -6,7 +6,7 @@
 - `npm run start` — serve the built UI and API on `:4100`
 - `npm run build` — typecheck + production build (run before every commit)
 - `npm run smoke` — one live DeepSeek end-to-end item
-- `npm run cli -- <command>` — headless batch runner
+- `npm run cli -- <command>` — headless batch runner (`book`, `status`, `items`, `logs`, `resume`)
 - `npm run test:unit` / `test:e2e` / `test:smart` / `test:baseline`
 - `npm run roadmap -- list|add|close|check`
 - `npm run lint` — roadmap + docs + test hygiene + typecheck
@@ -30,7 +30,8 @@
 - `src/core/agents/` — prompts + typed agent functions, one per stage.
 - `src/core/llm/schemas.ts` — Zod is the contract; every model response is parsed.
 - `src/server/` — local key holder and `/api/agent` proxy; serves the built UI.
-- `src/cli/` — batch execution and SQLite job state (the UI only monitors/reviews).
+- `src/cli/` — batch execution and SQLite job state (`src/core/db/`).
+- `src/server/` exposes `/api/jobs`, pause/stop and an SSE progress stream for the UI.
 - `src/ui/` — React monitor/review console; no secrets, no direct API calls.
 - **Model policy:** `deepseek-flash` only. Effort (`low|high|max`) and thinking on/off
   carry quality; there is no Pro tier in this project.

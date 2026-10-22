@@ -28,7 +28,10 @@ fixtures and no API calls.
 | `npm run dev` | API server + Vite UI (dev) |
 | `npm run start` | Build is served by the API on `:4100` |
 | `npm run smoke` | Live DeepSeek smoke: synthesis → blank → critic → lies |
-| `npm run cli -- book --limit 20` | Batch book extraction (once landed) |
+| `npm run cli -- book --limit 20` | Create a SQLite job and extract book facts |
+| `npm run cli -- status` | List jobs and their progress/cost |
+| `npm run cli -- items <id>` | Inspect a job's items |
+| `npm run cli -- resume <id>` | Reclaim stale items and continue |
 | `npm run test:unit` | Vitest logic tests |
 | `npm run test:e2e` | Playwright UI smoke |
 | `npm run test:smart` | Diff-based Playwright selection |

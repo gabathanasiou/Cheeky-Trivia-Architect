@@ -57,13 +57,13 @@ for the interactive UI, and serves the built UI.
 |---|---|---|
 | `GET` | `/api/health` | `{ ok, model, mock, hasKey }` — never the key itself |
 | `POST` | `/api/agent` | `{ name, args }` → agent result + usage (interactive UI) |
-| `GET` | `/api/jobs` | Job summaries (planned) |
-| `GET` | `/api/jobs/:id` | Job + item page (planned) |
-| `GET` | `/api/jobs/:id/events` | SSE progress stream (planned) |
-| `POST` | `/api/jobs/:id/pause` | Set the pause flag (planned) |
-| `POST` | `/api/jobs/:id/stop` | Set the stop flag (planned) |
+| `GET` | `/api/jobs` | Job summaries |
+| `GET` | `/api/jobs/:id` | Job + items + runs + logs |
+| `GET` | `/api/jobs/:id/events` | SSE progress stream |
+| `POST` | `/api/jobs/:id/pause` | Set the pause flag |
+| `POST` | `/api/jobs/:id/stop` | Set the stop flag |
 
-## SQLite (target schema)
+## SQLite job store (implemented)
 
 ```sql
 jobs(id, source, status, stage, total, done, failed, cost_usd,
@@ -78,7 +78,8 @@ logs(id, job_id, item_id, level, message, created_at)
 
 WAL mode, one writer per transaction, `UPDATE … WHERE status='pending'` claim so a
 crashed worker's item is re-claimable after a timeout. Content hashes make every
-stage idempotent.
+stage idempotent. The store lives in `src/core/db/index.ts`; the CLI and the local
+server share it.
 
 ## Security boundary
 

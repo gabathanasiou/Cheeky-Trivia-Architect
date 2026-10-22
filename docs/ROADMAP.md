@@ -48,7 +48,7 @@ retired to `docs/ROADMAP-ARCHIVE.md` as **one line**; git history keeps the narr
   `data/exports/book-en.jsonl` is valid.
 - **Relations:** depends on 3; no licence gate (public domain).
 
-## 5. Batch CLI — SQLite job store, resume, concurrency, budget (`[ ]`)
+## 5. Batch CLI — SQLite job store, resume, concurrency, budget (`[~]`)
 
 - **Request:** A headless runner for thousands of items that survives crashes and does
   not re-pay for completed work.
@@ -59,7 +59,7 @@ retired to `docs/ROADMAP-ARCHIVE.md` as **one line**; git history keeps the narr
   duplicate work; budget cap stops cleanly.
 - **Relations:** depends on 2, 3.
 
-## 6. Browser monitor — job dashboard, SSE, pause/stop (`[ ]`)
+## 6. Browser monitor — job dashboard, SSE, pause/stop (`[~]`)
 
 - **Request:** Keep the browser UI, but make it a live monitor for CLI jobs instead of
   a localStorage queue.
