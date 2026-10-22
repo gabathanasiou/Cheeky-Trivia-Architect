@@ -13,3 +13,6 @@ never renumber or reuse.**
 |---|---|---|
 | 1 | Repo baseline — roadmap, docs, tests, CI | AGENTS.md; docs/TESTING.md; scripts/; .github/workflows/ci.yml |
 | 2 | DeepSeek Flash provider — server-side key, effort levels, JSON/Zod, cost | src/core/llm/; src/core/agents/; src/server/; docs/COST.md; scripts/smoke.ts |
+| 6 | Browser monitor — job dashboard, SSE, pause/stop | src/ui/JobsView.tsx; src/ui/App.tsx; src/server/index.ts; e2e/smoke.spec.ts; docs/ARCHITECTURE.md |
+| 3 | Fact model + fact gate — synthesis contract, validation, dedup | src/core/agents/validate.ts; src/core/agents/validate.test.ts; src/cli/processFact.ts; docs/PIPELINE.md |
+| 5 | Batch CLI — SQLite job store, resume, concurrency, budget | src/core/db/; src/cli/; src/core/db/index.test.ts; docs/ARCHITECTURE.md |

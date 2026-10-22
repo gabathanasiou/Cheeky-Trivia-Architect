@@ -28,10 +28,11 @@ Status: reference — local batch tool + monitor UI. The pipeline is described i
                          DeepSeek Flash
 ```
 
-The CLI owns batch execution. The browser UI never runs a bulk job in memory; it
-reads the same SQLite store and can pause/stop a job or approve/review an item. A
-small local Express server (`src/server/`) holds the API key, exposes `/api/agent`
-for the interactive UI, and serves the built UI.
+The CLI owns execution. The browser never runs a bulk job in memory: the Optimizer
+page creates a job via `POST /api/jobs`, then polls the same SQLite store and renders
+the job's result cards. `/#jobs` is the history and control view. A small local
+Express server (`src/server/`) holds the API key, exposes `/api/jobs` for creation and
+control, keeps `/api/agent` for single-call debugging, and serves the built UI.
 
 ## Components
 
@@ -57,6 +58,8 @@ for the interactive UI, and serves the built UI.
 |---|---|---|
 | `GET` | `/api/health` | `{ ok, model, mock, hasKey }` — never the key itself |
 | `POST` | `/api/agent` | `{ name, args }` → agent result + usage (interactive UI) |
+| `POST` | `/api/jobs` | Create a manual job and spawn the CLI worker |
+| `POST` | `/api/jobs/:id/resume` | Spawn the CLI worker for an existing job |
 | `GET` | `/api/jobs` | Job summaries |
 | `GET` | `/api/jobs/:id` | Job + items + runs + logs |
 | `GET` | `/api/jobs/:id/events` | SSE progress stream |

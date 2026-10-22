@@ -23,6 +23,32 @@ interface Item {
   status: string;
   error: string | null;
   attempts: number;
+  payload_json: string | null;
+  scores_json: string | null;
+}
+
+interface Candidate {
+  id?: string;
+  status?: 'fact' | 'question';
+  statement?: string;
+  fact?: string;
+  answer: string;
+  category: string;
+  lies?: string[];
+  funScore?: number;
+  blankScore?: number;
+  difficulty?: string;
+  quote?: string;
+  confidence?: number;
+}
+
+function candidatesFor(item: Item): Candidate[] {
+  try {
+    const payload = JSON.parse(item.payload_json ?? '{}') as { candidates?: Candidate[] };
+    return Array.isArray(payload.candidates) ? payload.candidates : [];
+  } catch {
+    return [];
+  }
 }
 
 interface Log {
@@ -66,7 +92,6 @@ export const JobsView: React.FC = () => {
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-
   const loadJobs = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -156,6 +181,21 @@ export const JobsView: React.FC = () => {
 
       <main className="max-w-7xl mx-auto mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
         <section className="lg:col-span-5 space-y-3">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">New job</h2>
+            <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+              The Optimizer is the creation surface: paste facts, pick optimization or
+              localization, then hit <span className="text-neon-blue">Run as background job</span>.
+              It lands here with live progress, items, logs and pause/stop.
+            </p>
+            <a
+              href="#"
+              className="mt-3 inline-flex items-center gap-2 bg-neon-purple/20 hover:bg-neon-purple/40 text-neon-purple border border-neon-purple/40 rounded-lg px-3 py-2 text-xs font-bold"
+            >
+              <Play className="w-3 h-3" /> Open Optimizer
+            </a>
+          </div>
+
           {jobs.length === 0 && (
             <div className="border border-dashed border-slate-800 rounded-xl p-10 text-center text-slate-500">
               <Activity className="w-8 h-8 mx-auto mb-3 opacity-50" />
@@ -267,14 +307,51 @@ export const JobsView: React.FC = () => {
                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
                   Items ({detail.items.length})
                 </h2>
-                <div className="max-h-64 overflow-auto space-y-1 font-mono text-[11px]">
-                  {detail.items.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between gap-3 py-1 border-b border-slate-800/50">
-                      <span className="text-slate-400">{item.source_id ?? item.id.slice(0, 8)}</span>
-                      <span className={statusColor(item.status)}>{item.status}</span>
-                      <span className="text-slate-600 truncate max-w-[40%]">{item.error ?? ''}</span>
-                    </div>
-                  ))}
+                <div className="max-h-[28rem] overflow-auto space-y-2 font-mono text-[11px]">
+                  {detail.items.map((item) => {
+                    const candidates = candidatesFor(item);
+                    return (
+                      <details key={item.id} className="border border-slate-800/70 rounded-lg bg-slate-950/40">
+                        <summary className="cursor-pointer px-3 py-2 flex items-center justify-between gap-3">
+                          <span className="text-slate-400">{item.source_id ?? item.id.slice(0, 8)}</span>
+                          <span className={statusColor(item.status)}>{item.status}</span>
+                          <span className="text-slate-600">
+                            {candidates.length > 0 ? `${candidates.length} candidate(s)` : (item.error ?? '')}
+                          </span>
+                        </summary>
+                        {candidates.length > 0 && (
+                          <div className="px-3 pb-3 space-y-2">
+                            {candidates.map((candidate, index) => (
+                              <div
+                                key={candidate.id ?? index}
+                                className="border-l-2 border-neon-purple/40 pl-3 py-1"
+                              >
+                                <div className="text-slate-200 font-sans text-xs leading-relaxed">
+                                  {candidate.statement ?? candidate.fact}
+                                </div>
+                                <div className="mt-1 text-[10px] text-slate-500 flex flex-wrap gap-x-3 gap-y-1">
+                                  <span className="text-neon-green">answer: {candidate.answer}</span>
+                                  <span>{candidate.category}</span>
+                                  {candidate.funScore !== undefined && (
+                                    <span className="text-neon-blue">fun {candidate.funScore}/10</span>
+                                  )}
+                                  {candidate.blankScore !== undefined && (
+                                    <span>blank {candidate.blankScore}/10</span>
+                                  )}
+                                  {candidate.difficulty && <span>{candidate.difficulty}</span>}
+                                </div>
+                                {candidate.lies && candidate.lies.length > 0 && (
+                                  <div className="mt-1 text-[10px] text-slate-500">
+                                    lies: {candidate.lies.join(' · ')}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </details>
+                    );
+                  })}
                   {detail.items.length === 0 && <div className="text-slate-600">No items.</div>}
                 </div>
               </div>

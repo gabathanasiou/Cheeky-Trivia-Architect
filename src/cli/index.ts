@@ -3,7 +3,7 @@ config({ path: '.env.local' });
 config();
 
 import { parseArgs } from 'node:util';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import {
@@ -22,30 +22,42 @@ import {
   validateQuestion,
 } from '../core/agents/validate';
 import { fetchBookText, parseBook } from '../core/sources/book';
-import type { TokenUsage } from '../core/types';
+import type { TokenUsage, TriviaFact } from '../core/types';
 import { addUsage } from '../core/llm/usage';
 import { ArchitectDb, type ItemRow, type JobSummary } from '../core/db/index';
+import { processFact, SkipError } from './processFact';
+import type { Candidate, Effort, RunMode, RunOptions, UsageSink } from './types';
 
 const USAGE = `Usage: npm run cli -- <command> [options]
 
 Commands:
   fetch                     Download/cache the Gutenberg book and print section stats
-  book                      Create a job and extract facts (add --full for blanks + lies)
+  book                      Create a book job (add --full for blanks + lies)
+  optimize                  Create a manual/input job from a JSON array
+  run <jobId>               Run or resume any job by id
+  resume <jobId>            Alias for run (reclaims stale items first)
   status [jobId]            List jobs, or show one job + its latest logs
   items <jobId>             Show job items (--status pending|processing|done|skipped|failed)
   logs <jobId>              Show the latest logs
-  resume <jobId>            Reclaim stale items in a job and continue it
   help                      Show this message
 
-Book options:
-  --limit <n>               Number of sections to process (default 5)
-  --sections <a,b,c>        Explicit section indexes (overrides --limit)
-  --full                    Run Architect -> Critic -> Generator -> Editor
-  --effort <low|high|max>   Thinking effort for creative stages (default high)
+Common options:
+  --effort <low|high|max>   Thinking effort (default high)
   --max-cost <usd>          Pause before the next item when this is exceeded (default 1)
   --concurrency <n>         Parallel workers (default 2)
-  --out <path>              Final JSONL export (default data/exports/book-en.jsonl)
+  --out <path>              Final JSONL export
+  --job <id>                Use an existing job instead of creating one
+
+Book options:
+  --limit <n>               Number of sections (default 5)
+  --sections <a,b,c>        Explicit section indexes (overrides --limit)
+  --full                    Run Architect -> Critic -> Generator -> Editor
   --force                   Re-download the source even if cached
+
+Optimize options:
+  --input <path|->          JSON array of { fact, answer, category, lies }
+  --mode <optimization|localization>  (default optimization)
+  --language <name>         Target language (default English)
 `;
 
 const MODEL = process.env.DEEPSEEK_MODEL ?? 'deepseek-flash';
@@ -71,7 +83,7 @@ function printUsage(): void {
   console.log(USAGE);
 }
 
-function sourceFor(sectionIndex: number) {
+function sourceForBook(sectionIndex: number) {
   return {
     name: 'Invention and Discovery: Curious Facts and Characteristic Sketches',
     url: 'https://www.gutenberg.org/ebooks/46644',
@@ -84,12 +96,34 @@ function contentHash(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
+function parseEffort(value: string): Effort {
+  if (value !== 'low' && value !== 'high' && value !== 'max') {
+    throw new Error(`--effort must be low, high or max (got ${value})`);
+  }
+  return value;
+}
+
+function parseMode(value: string): RunMode {
+  if (value !== 'optimization' && value !== 'localization') {
+    throw new Error(`--mode must be optimization or localization (got ${value})`);
+  }
+  return value;
+}
+
 function printJobs(jobs: JobSummary[]): void {
   if (jobs.length === 0) {
     console.log('no jobs');
     return;
   }
-  console.log('id'.padEnd(38), 'source'.padEnd(8), 'status'.padEnd(8), 'done'.padStart(10), 'fail'.padStart(5), 'skip'.padStart(5), 'cost'.padStart(10));
+  console.log(
+    'id'.padEnd(38),
+    'source'.padEnd(8),
+    'status'.padEnd(8),
+    'done'.padStart(10),
+    'fail'.padStart(5),
+    'skip'.padStart(5),
+    'cost'.padStart(10),
+  );
   for (const job of jobs) {
     const progress = `${job.done}/${job.total}`;
     console.log(
@@ -111,8 +145,15 @@ function printJob(job: JobSummary): void {
   console.log(`effort:   ${job.effort}`);
   console.log(`progress: ${job.done}/${job.total} done, ${job.failed} failed, ${job.skipped} skipped, ${job.pending} pending, ${job.processing} processing`);
   console.log(`cost:     $${job.cost_usd.toFixed(6)}`);
+  if (job.options_json) console.log(`options:  ${job.options_json}`);
   console.log(`created:  ${job.created_at}`);
   console.log(`updated:  ${job.updated_at}`);
+}
+
+function printItem(item: ItemRow): void {
+  console.log(
+    `${item.id.slice(0, 8)}  ${item.status.padEnd(10)}  ${(item.source_id ?? '-').padEnd(12)}  ${item.error ?? ''}`,
+  );
 }
 
 async function runFetch(options: { force: boolean }): Promise<void> {
@@ -124,43 +165,6 @@ async function runFetch(options: { force: boolean }): Promise<void> {
   console.log(`sections: ${sections.length}`);
   console.log(`first: ${sections[0]?.heading ?? '-'}`);
   console.log(`last: ${sections[sections.length - 1]?.heading ?? '-'}`);
-}
-
-interface RunOptions {
-  limit: number;
-  sections?: number[];
-  full: boolean;
-  effort: 'low' | 'high' | 'max';
-  maxCost: number;
-  concurrency: number;
-  out: string;
-  force: boolean;
-  jobId?: string;
-}
-
-interface Candidate {
-  id: string;
-  status: 'fact' | 'question';
-  fact?: string;
-  statement?: string;
-  answer: string;
-  category: string;
-  lies?: string[];
-  blankScore?: number;
-  funScore?: number;
-  difficulty?: string;
-  timeless?: boolean;
-  tone?: string;
-  quote?: string;
-  confidence?: number;
-  source: ReturnType<typeof sourceFor>;
-  usage: TokenUsage;
-}
-
-type UsageSink = (stage: string, usage: TokenUsage) => void;
-
-function candidateLine(candidate: Candidate): string {
-  return `${JSON.stringify(candidate)}\n`;
 }
 
 async function processSection(
@@ -205,7 +209,7 @@ async function processSection(
       difficulty: scored.data.difficulty,
       timeless: scored.data.timeless,
       tone: scored.data.tone,
-      source: sourceFor(section.index),
+      source: sourceForBook(section.index),
       usage: scored.usage,
     } satisfies Partial<Candidate>;
 
@@ -225,9 +229,13 @@ async function processSection(
       lies: [],
     };
 
-    let placement = await optimizePlacement(current, [], '', 'English');
+    let placement = await optimizePlacement(current, [], '', options.language);
     onUsage('architect', placement.usage);
-    let critique = await critiquePlacement(placement.data.newFact, placement.data.newAnswer, 'English');
+    let critique = await critiquePlacement(
+      placement.data.newFact,
+      placement.data.newAnswer,
+      options.language,
+    );
     onUsage('critic', critique.usage);
 
     if (critique.data.score < 7) {
@@ -235,10 +243,14 @@ async function processSection(
         current,
         [placement.data.newFact],
         critique.data.feedback ?? '',
-        'English',
+        options.language,
       );
       onUsage('architect', placement.usage);
-      critique = await critiquePlacement(placement.data.newFact, placement.data.newAnswer, 'English');
+      critique = await critiquePlacement(
+        placement.data.newFact,
+        placement.data.newAnswer,
+        options.language,
+      );
       onUsage('critic', critique.usage);
     }
 
@@ -251,11 +263,11 @@ async function processSection(
       placement.data.newFact,
       placement.data.newAnswer,
       fact.category,
-      'English',
+      options.language,
     );
     onUsage('generate', generated.usage);
 
-    const edited = await refineLies(placement.data.newFact, generated.data.rawLies, 'English');
+    const edited = await refineLies(placement.data.newFact, generated.data.rawLies, options.language);
     onUsage('refine', edited.usage);
 
     const question = {
@@ -291,7 +303,6 @@ async function processSection(
   return candidates;
 }
 
-/** Restore the dedupe set from completed items so a resume does not duplicate. */
 function loadSeen(db: ArchitectDb, jobId: string): Set<string> {
   const seen = new Set<string>();
   for (const item of db.getItems(jobId, { status: 'done', limit: 100_000 })) {
@@ -308,10 +319,7 @@ function loadSeen(db: ArchitectDb, jobId: string): Set<string> {
   return seen;
 }
 
-function selectSections(
-  allSections: ReturnType<typeof parseBook>,
-  options: RunOptions,
-) {
+function selectSections(allSections: ReturnType<typeof parseBook>, options: RunOptions) {
   return options.sections
     ? options.sections
         .map((index) => allSections[index])
@@ -319,114 +327,125 @@ function selectSections(
     : allSections.slice(0, options.limit);
 }
 
-async function runBook(options: RunOptions): Promise<void> {
-  process.env.ARCHITECT_EFFORT = options.effort;
-  const db = new ArchitectDb();
-
-  let jobId = options.jobId;
-  if (!jobId) {
-    const source = await fetchBookText({ force: options.force });
-    const allSections = parseBook(source.text);
-    const sections = selectSections(allSections, options);
-
-    if (sections.length === 0) {
-      throw new Error('No sections selected. Check --limit/--sections.');
-    }
-
-    jobId = db.createJob({
-      source: 'book',
-      effort: options.effort,
-      items: sections.map((section) => ({
-        sourceId: `section-${section.index}`,
-        contentHash: contentHash(section.text),
-        payload: section,
-      })),
-    });
-    db.addLog(jobId, 'info', `created with ${sections.length} sections from ${allSections.length}`);
-    console.log(`created job ${jobId} (${sections.length} sections)`);
-  } else {
-    const job = db.getJob(jobId);
-    if (!job) throw new Error(`Job not found: ${jobId}`);
-    const reclaimed = db.reclaimStaleItems(jobId);
-    if (reclaimed > 0) console.log(`reclaimed ${reclaimed} stale item(s)`);
+function jobOptions(job: JobSummary, fallback: RunOptions): RunOptions {
+  let stored: Partial<RunOptions> = {};
+  try {
+    stored = JSON.parse(job.options_json ?? '{}') as Partial<RunOptions>;
+  } catch {
+    stored = {};
   }
+  return {
+    ...fallback,
+    effort: parseEffort(job.effort),
+    mode: stored.mode ?? fallback.mode,
+    language: stored.language ?? fallback.language,
+    full: stored.full ?? fallback.full,
+    out: stored.out ?? fallback.out,
+    jobId: job.id,
+  };
+}
+
+async function runJob(db: ArchitectDb, jobId: string, options: RunOptions): Promise<void> {
+  const existing = db.getJob(jobId);
+  if (!existing) throw new Error(`Job not found: ${jobId}`);
+  const effective = jobOptions(existing, options);
+  process.env.ARCHITECT_EFFORT = effective.effort;
+
+  const reclaimed = db.reclaimStaleItems(jobId);
+  if (reclaimed > 0) console.log(`reclaimed ${reclaimed} stale item(s)`);
+  db.setJobStatus(jobId, 'running');
+
+  const seen = loadSeen(db, jobId);
+  const out = path.resolve(effective.out);
+  await mkdir(path.dirname(out), { recursive: true });
 
   const job = db.getJob(jobId);
   if (!job) throw new Error(`Job not found: ${jobId}`);
 
-  db.setJobStatus(jobId, 'running');
-  const seen = loadSeen(db, jobId);
-  const out = path.resolve(options.out);
-  await mkdir(path.dirname(out), { recursive: true });
-
   console.log(`job: ${jobId}`);
-  console.log(`run: ${job.pending + job.processing} pending, ${options.full ? 'facts + blanks + lies' : 'facts only'}`);
+  console.log(`source: ${job.source}, effort ${effective.effort}, ${job.pending + job.processing} pending`);
   console.log(`output: ${out}\n`);
 
-  const workers = Array.from({ length: options.concurrency }, async () => {
-      while (true) {
-        if (db.isStopRequested(jobId!)) {
-          db.addLog(jobId!, 'warn', 'stop requested');
-          break;
-        }
-        if (db.isPauseRequested(jobId!)) {
-          await sleep(1_000);
-          continue;
-        }
+  const workers = Array.from({ length: effective.concurrency }, async () => {
+    while (true) {
+      if (db.isStopRequested(jobId)) {
+        db.addLog(jobId, 'warn', 'stop requested');
+        break;
+      }
+      if (db.isPauseRequested(jobId)) {
+        await sleep(1_000);
+        continue;
+      }
 
-        const current = db.getJob(jobId!);
-        if (!current) break;
-        if (current.status === 'paused') break;
-        if (current.cost_usd >= options.maxCost) {
-          db.requestPause(jobId!);
-          db.setJobStatus(jobId!, 'paused');
-          db.addLog(jobId!, 'warn', `budget cap $${options.maxCost.toFixed(4)} reached`);
-          console.log(`budget cap $${options.maxCost.toFixed(4)} reached; pausing.`);
-          break;
-        }
+      const current = db.getJob(jobId);
+      if (!current) break;
+      if (current.status === 'paused') break;
+      if (current.cost_usd >= effective.maxCost) {
+        db.requestPause(jobId);
+        db.setJobStatus(jobId, 'paused');
+        db.addLog(jobId, 'warn', `budget cap $${effective.maxCost.toFixed(4)} reached`);
+        console.log(`budget cap $${effective.maxCost.toFixed(4)} reached; pausing.`);
+        break;
+      }
 
-        const item = db.claimItem(jobId!);
-        if (!item) break;
+      const item = db.claimItem(jobId);
+      if (!item) break;
 
-        let section: { index: number; heading: string; text: string };
-        try {
-          section = JSON.parse(item.payload_json ?? '{}') as typeof section;
-        } catch (error) {
-          db.completeItem(item.id, { status: 'failed', error: 'invalid item payload' });
-          continue;
-        }
-
-        console.log(`[${section.index}] ${section.heading}`);
-        try {
-          const candidates = await processSection(section, options, seen, (stage, usage) => {
-            db.addRun(jobId!, { stage, model: MODEL, effort: options.effort, usage });
+      let candidates: Candidate[];
+      let sourcePayload: unknown;
+      try {
+        if (job.source === 'book') {
+          const section = JSON.parse(item.payload_json ?? '{}') as {
+            index: number;
+            heading: string;
+            text: string;
+          };
+          sourcePayload = section;
+          console.log(`[${section.index}] ${section.heading}`);
+          candidates = await processSection(section, effective, seen, (stage, usage) => {
+            db.addRun(jobId, { stage, model: MODEL, effort: effective.effort, usage });
           });
+        } else {
+          const fact = JSON.parse(item.payload_json ?? '{}') as TriviaFact;
+          sourcePayload = fact;
+          const index = Number((item.source_id ?? 'fact-0').replace('fact-', '')) || 0;
+          console.log(`[${index}] ${fact.fact.slice(0, 60)}`);
+          candidates = await processFact(fact, effective, (stage, usage) => {
+            db.addRun(jobId, { stage, model: MODEL, effort: effective.effort, usage });
+          }, index);
+        }
 
-          if (candidates.length === 0) {
-            db.completeItem(item.id, { status: 'skipped', error: 'no accepted facts' });
-            db.addLog(jobId!, 'info', `[${section.index}] skipped: no accepted facts`, item.id);
-          } else {
-            db.completeItem(item.id, {
-              status: 'done',
-              payload: { section, candidates },
-              scores: {
-                bestFunScore: Math.max(...candidates.map((candidate) => candidate.funScore ?? 0)),
-              },
-            });
-            db.addLog(jobId!, 'info', `[${section.index}] ${candidates.length} candidate(s)`, item.id);
-          }
+        if (candidates.length === 0) {
+          db.completeItem(item.id, { status: 'skipped', error: 'no accepted candidate' });
+          db.addLog(jobId, 'info', `${item.source_id ?? item.id} skipped`, item.id);
+        } else {
+          db.completeItem(item.id, {
+            status: 'done',
+            payload: { source: sourcePayload, candidates },
+            scores: {
+              bestFunScore: Math.max(...candidates.map((candidate) => candidate.funScore ?? 0)),
+            },
+          });
+          db.addLog(jobId, 'info', `${item.source_id ?? item.id}: ${candidates.length} candidate(s)`, item.id);
+        }
 
-          const currentJob = db.getJob(jobId!);
-          console.log(
-            `[${section.index}] ${candidates.length} accepted, job cost $${(currentJob?.cost_usd ?? 0).toFixed(5)}`,
-          );
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          console.error(`[${section.index}] failed: ${message}`);
+        const currentJob = db.getJob(jobId);
+        console.log(
+          `${item.source_id ?? item.id} done, job cost $${(currentJob?.cost_usd ?? 0).toFixed(5)}`,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (error instanceof SkipError) {
+          console.log(`${item.source_id ?? item.id} skipped: ${message}`);
+          db.completeItem(item.id, { status: 'skipped', error: message });
+          db.addLog(jobId, 'info', `${item.source_id ?? item.id} skipped: ${message}`, item.id);
+        } else {
+          console.error(`${item.source_id ?? item.id} failed: ${message}`);
           db.completeItem(item.id, { status: 'failed', error: message });
-          db.addLog(jobId!, 'error', `[${section.index}] ${message}`, item.id);
+          db.addLog(jobId, 'error', `${item.source_id ?? item.id}: ${message}`, item.id);
         }
       }
+    }
   });
 
   await Promise.all(workers);
@@ -445,7 +464,7 @@ async function runBook(options: RunOptions): Promise<void> {
     try {
       const payload = JSON.parse(item.payload_json ?? '{}') as { candidates?: Candidate[] };
       for (const candidate of payload.candidates ?? []) {
-        lines.push(candidateLine(candidate));
+        lines.push(`${JSON.stringify(candidate)}\n`);
       }
     } catch {
       // Ignore malformed payloads.
@@ -454,14 +473,77 @@ async function runBook(options: RunOptions): Promise<void> {
   await writeFile(out, lines.join(''), 'utf8');
 
   console.log(`\ndone: ${lines.length} candidates written to ${out}`);
-  console.log(`job: ${jobId} (${db.getJob(jobId)?.status}) cost $${(db.getJob(jobId)?.cost_usd ?? 0).toFixed(6)}`);
-  db.close();
+  const after = db.getJob(jobId);
+  console.log(`job: ${jobId} (${after?.status}) cost $${(after?.cost_usd ?? 0).toFixed(6)}`);
 }
 
-function printItem(item: ItemRow): void {
-  console.log(
-    `${item.id.slice(0, 8)}  ${item.status.padEnd(10)}  ${(item.source_id ?? '-').padEnd(12)}  ${item.error ?? ''}`,
-  );
+async function createBookJob(db: ArchitectDb, options: RunOptions): Promise<string> {
+  const source = await fetchBookText({ force: options.force });
+  const allSections = parseBook(source.text);
+  const sections = selectSections(allSections, options);
+
+  if (sections.length === 0) {
+    throw new Error('No sections selected. Check --limit/--sections.');
+  }
+
+  const jobId = db.createJob({
+    source: 'book',
+    effort: options.effort,
+    items: sections.map((section) => ({
+      sourceId: `section-${section.index}`,
+      contentHash: contentHash(section.text),
+      payload: section,
+    })),
+    options: { mode: 'optimization', language: options.language, full: options.full, out: options.out },
+  });
+  db.addLog(jobId, 'info', `created with ${sections.length} sections from ${allSections.length}`);
+  console.log(`created job ${jobId} (${sections.length} sections)`);
+  return jobId;
+}
+
+async function readInput(inputPath: string): Promise<TriviaFact[]> {
+  let text: string;
+  if (inputPath === '-') {
+    text = await new Promise((resolve, reject) => {
+      let data = '';
+      process.stdin.setEncoding('utf8');
+      process.stdin.on('data', (chunk) => {
+        data += chunk;
+      });
+      process.stdin.on('end', () => resolve(data));
+      process.stdin.on('error', reject);
+    });
+  } else {
+    text = await readFile(inputPath, 'utf8');
+  }
+
+  const parsed = JSON.parse(text) as unknown;
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error('Input must be a non-empty JSON array');
+  }
+  return parsed as TriviaFact[];
+}
+
+async function createOptimizeJob(db: ArchitectDb, options: RunOptions & { input: string }): Promise<string> {
+  const facts = await readInput(options.input);
+  const jobId = db.createJob({
+    source: 'input',
+    effort: options.effort,
+    items: facts.map((fact, index) => ({
+      sourceId: `fact-${index}`,
+      contentHash: contentHash(JSON.stringify(fact)),
+      payload: fact,
+    })),
+    options: {
+      mode: options.mode,
+      language: options.language,
+      full: options.full,
+      out: options.out,
+    },
+  });
+  db.addLog(jobId, 'info', `created with ${facts.length} manual facts`);
+  console.log(`created job ${jobId} (${facts.length} facts)`);
+  return jobId;
 }
 
 async function main(): Promise<void> {
@@ -478,6 +560,9 @@ async function main(): Promise<void> {
       force: { type: 'boolean' },
       status: { type: 'string' },
       job: { type: 'string' },
+      input: { type: 'string' },
+      mode: { type: 'string' },
+      language: { type: 'string' },
     },
   });
 
@@ -535,29 +620,19 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (command === 'resume') {
-    const jobId = positionals[1] ?? (typeof values.job === 'string' ? values.job : undefined);
-    if (!jobId) throw new Error('resume requires a job id');
-    await runBook({
-      limit: 0,
-      full: bool(values.full),
-      effort: (str(values.effort, 'high') as RunOptions['effort']),
-      maxCost: number(values['max-cost'], 1),
-      concurrency: number(values.concurrency, 2),
-      out: str(values.out, 'data/exports/book-en.jsonl'),
-      force: false,
-      jobId,
-    });
-    return;
-  }
+  const common = {
+    effort: parseEffort(str(values.effort, 'high')),
+    maxCost: number(values['max-cost'], 1),
+    concurrency: number(values.concurrency, 2),
+    force: bool(values.force),
+    mode: parseMode(str(values.mode, 'optimization')),
+    language: str(values.language, 'English'),
+  };
 
   if (command === 'book') {
-    const effort = str(values.effort, 'high');
-    if (effort !== 'low' && effort !== 'high' && effort !== 'max') {
-      throw new Error(`--effort must be low, high or max (got ${effort})`);
-    }
-
-    await runBook({
+    const db = new ArchitectDb();
+    const options: RunOptions = {
+      ...common,
       limit: number(values.limit, 5),
       sections: values.sections
         ? str(values.sections, '')
@@ -566,13 +641,49 @@ async function main(): Promise<void> {
             .filter((value) => Number.isInteger(value))
         : undefined,
       full: bool(values.full),
-      effort,
-      maxCost: number(values['max-cost'], 1),
-      concurrency: number(values.concurrency, 2),
       out: str(values.out, 'data/exports/book-en.jsonl'),
-      force: bool(values.force),
       jobId: typeof values.job === 'string' ? values.job : undefined,
-    });
+    };
+    const jobId = options.jobId ?? (await createBookJob(db, options));
+    await runJob(db, jobId, options);
+    db.close();
+    return;
+  }
+
+  if (command === 'optimize') {
+    if (typeof values.input !== 'string') {
+      throw new Error('optimize requires --input <path|->');
+    }
+    const db = new ArchitectDb();
+    const options: RunOptions = {
+      ...common,
+      limit: 0,
+      full: bool(values.full),
+      out: str(values.out, `data/exports/optimized-${common.language.toLowerCase()}.jsonl`),
+      input: values.input,
+      jobId: typeof values.job === 'string' ? values.job : undefined,
+    } as RunOptions & { input: string };
+    const jobId = options.jobId ?? (await createOptimizeJob(db, options as RunOptions & { input: string }));
+    await runJob(db, jobId, options);
+    db.close();
+    return;
+  }
+
+  if (command === 'run' || command === 'resume') {
+    const jobId = positionals[1] ?? (typeof values.job === 'string' ? values.job : undefined);
+    if (!jobId) throw new Error(`${command} requires a job id`);
+    const db = new ArchitectDb();
+    const job = db.getJob(jobId);
+    if (!job) throw new Error(`Job not found: ${jobId}`);
+    const options: RunOptions = {
+      ...common,
+      limit: 0,
+      full: bool(values.full),
+      out: str(values.out, 'data/exports/job.jsonl'),
+      jobId,
+    };
+    await runJob(db, jobId, options);
+    db.close();
     return;
   }
 

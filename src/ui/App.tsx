@@ -3,7 +3,6 @@ import { Play, Sparkles, RefreshCw, Copy, Layers, Globe, ChevronLeft, ChevronRig
 import { AgentLog, AgentResponseLocalization, ProcessedItem, TriviaFact, TokenUsage, SystemMode } from '../core/types';
 import { AgentVisualizer } from './components/AgentVisualizer';
 import { ResultCard } from './components/ResultCard';
-import * as AgentService from './services/agentClient';
 
 const DEFAULT_INPUT = `[
   {
@@ -20,37 +19,124 @@ const DEFAULT_INPUT = `[
   }
 ]`;
 
+interface JobItemRow {
+  id: string;
+  source_id: string | null;
+  status: string;
+  payload_json: string | null;
+  error: string | null;
+  updated_at: string;
+}
+
+interface JobLogRow {
+  id: number;
+  item_id: string | null;
+  level: string;
+  message: string;
+  created_at: string;
+}
+
+interface JobRunRow {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+}
+
+interface JobDetail {
+  job: {
+    id: string;
+    source: string;
+    status: string;
+    done: number;
+    total: number;
+    failed: number;
+    skipped: number;
+    cost_usd: number;
+    pending: number;
+    processing: number;
+  };
+  items: JobItemRow[];
+  logs: JobLogRow[];
+  runs: JobRunRow[];
+}
+
+function mapJobItems(detail: JobDetail, mode: SystemMode): ProcessedItem[] {
+  return detail.items.map((item) => {
+    let payload: Record<string, any> = {};
+    try {
+      payload = JSON.parse(item.payload_json ?? '{}') as Record<string, any>;
+    } catch {
+      payload = {};
+    }
+
+    const source = (payload.source ?? payload.section ?? payload) as Record<string, any>;
+    const original: TriviaFact =
+      detail.job.source === 'input' && typeof source.fact === 'string'
+        ? {
+            fact: source.fact,
+            answer: typeof source.answer === 'string' ? source.answer : '',
+            category: typeof source.category === 'string' ? source.category : 'General',
+            lies: Array.isArray(source.lies) ? source.lies : [],
+          }
+        : {
+            fact: typeof source.heading === 'string' ? source.heading : 'Book section',
+            answer: '',
+            category: 'Book',
+            lies: [],
+          };
+
+    const candidate = Array.isArray(payload.candidates) ? payload.candidates[0] : null;
+    const optimized: TriviaFact | null = candidate
+      ? {
+          fact: candidate.fact ?? candidate.statement ?? '',
+          answer: candidate.answer ?? '',
+          category: candidate.category ?? 'General',
+          lies: Array.isArray(candidate.lies) ? candidate.lies : [],
+        }
+      : null;
+
+    const logs: AgentLog[] = detail.logs
+      .filter((log) => log.item_id === item.id)
+      .slice()
+      .reverse()
+      .map((log) => ({
+        id: String(log.id),
+        agentName: 'Job',
+        action: log.message,
+        status: log.level === 'error' ? 'failed' : 'success',
+        timestamp: Date.parse(log.created_at),
+      }));
+
+    const status: ProcessedItem['status'] =
+      item.status === 'done'
+        ? 'completed'
+        : item.status === 'processing'
+          ? 'processing'
+          : item.status === 'pending'
+            ? 'pending'
+            : 'failed';
+
+    return {
+      id: item.id,
+      timestamp: Date.parse(item.updated_at) || Date.now(),
+      mode,
+      original,
+      optimized,
+      score: candidate?.blankScore ?? candidate?.funScore ?? null,
+      status,
+      currentStep: item.status === 'processing' ? 'Background job working...' : undefined,
+      triageDecision: candidate ? 'JOB' : undefined,
+      logs,
+      tokenStats: candidate?.usage,
+      error: item.error ?? undefined,
+      reviewed: false,
+      pendingAction: 'DEFAULT',
+    };
+  });
+}
+
 const ITEMS_PER_PAGE = 10;
 const AVG_PROCESSING_TIME = 8000; // ms
 const STORAGE_KEY = 'cheeky_trivia_app_state_v1';
-
-// Simple success sound using Web Audio API
-const playSuccessSound = () => {
-    try {
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContext) return;
-        
-        const ctx = new AudioContext();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        
-        osc.type = 'sine';
-        // A pleasant "ding" sound
-        osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
-        osc.frequency.exponentialRampToValueAtTime(1046.5, ctx.currentTime + 0.1); // C6
-        
-        gain.gain.setValueAtTime(0.1, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-        
-        osc.start();
-        osc.stop(ctx.currentTime + 0.5);
-    } catch (e) {
-        console.error("Audio play failed", e);
-    }
-};
 
 function App() {
   // Load initial state lazily once
@@ -68,33 +154,31 @@ function App() {
   const [language, setLanguage] = useState(initialState?.language || "Greek");
   const [systemMode, setSystemMode] = useState<SystemMode>(initialState?.systemMode || 'OPTIMIZATION');
   const [isProcessing, setIsProcessing] = useState(false); // Always start paused on reload
-  const [logs, setLogs] = useState<AgentLog[]>(initialState?.logs || []); 
+  const [logs, setLogs] = useState<AgentLog[]>([]);
   
-  // Smart Restore: If items were 'processing' when app closed, reset them to 'pending' so they aren't stuck.
-  const [processedItems, setProcessedItems] = useState<ProcessedItem[]>(() => {
-      const savedItems = initialState?.processedItems;
-      if (Array.isArray(savedItems)) {
-          return savedItems.map((p: ProcessedItem) => 
-            p.status === 'processing' 
-                ? { ...p, status: 'pending', currentStep: 'Session restored. Waiting...' } 
-                : p
-          );
-      }
-      return [];
-  });
+  const [processedItems, setProcessedItems] = useState<ProcessedItem[]>([]);
 
   const [copied, setCopied] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [showSettings, setShowSettings] = useState(false);
-  const [activeTab, setActiveTab] = useState<'processing' | 'ready' | 'reviewed'>(initialState?.activeTab || 'ready');
+  const [activeTab, setActiveTab] = useState<'processing' | 'ready'>(initialState?.activeTab === 'processing' ? 'processing' : 'ready');
   
   // Settings
-  const [tokenLimit, setTokenLimit] = useState(initialState?.tokenLimit || 100000);
+  const [maxCost, setMaxCost] = useState(initialState?.maxCost || 1);
+  const [effort, setEffort] = useState<'low' | 'high' | 'max'>(initialState?.effort || 'high');
   const [concurrency, setConcurrency] = useState(initialState?.concurrency || 5);
-  const [totalTokenUsage, setTotalTokenUsage] = useState<{ count: number; cost: number }>(
-    initialState?.totalTokenUsage || { count: 0, cost: 0 },
-  );
-  const [shouldStop, setShouldStop] = useState(false);
+  const [totalTokenUsage, setTotalTokenUsage] = useState<{ count: number; cost: number }>({
+    count: 0,
+    cost: 0,
+  });
+  const [activeJobId, setActiveJobId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('architect_active_job');
+    } catch {
+      return null;
+    }
+  });
+  const [jobInfo, setJobInfo] = useState<JobDetail['job'] | null>(null);
 
   // --------------------------------------------------------
   // PERSISTENCE
@@ -104,10 +188,8 @@ function App() {
         inputText,
         language,
         systemMode,
-        logs,
-        processedItems,
-        totalTokenUsage,
-        tokenLimit,
+        maxCost,
+        effort,
         concurrency,
         activeTab
     };
@@ -116,7 +198,7 @@ function App() {
     } catch (e) {
         console.error("Failed to save state to local storage", e);
     }
-  }, [inputText, language, systemMode, logs, processedItems, totalTokenUsage, tokenLimit, concurrency, activeTab]);
+  }, [inputText, language, systemMode, maxCost, effort, concurrency, activeTab]);
 
   const handleClearSession = () => {
       if (window.confirm("Are you sure you want to clear the entire session? This will delete all logs and items permanently.")) {
@@ -124,518 +206,112 @@ function App() {
           setLogs([]);
           setTotalTokenUsage({ count: 0, cost: 0 });
           setIsProcessing(false);
-          setShouldStop(false);
           localStorage.removeItem(STORAGE_KEY);
       }
   };
 
   // --------------------------------------------------------
-  // LOGGING UTILS
-  // --------------------------------------------------------
-  const addLog = (
-      agentName: string, 
-      action: string, 
-      status: AgentLog['status'], 
-      details?: string, 
-      itemIdToUpdate?: string
-  ): string => {
-    const id = Math.random().toString(36).substr(2, 9);
-    const newLog: AgentLog = {
-      id,
-      agentName,
-      action,
-      status,
-      details,
-      timestamp: Date.now()
-    };
-
-    setLogs(prev => [...prev, newLog]);
-
-    if (itemIdToUpdate) {
-        setProcessedItems(prev => prev.map(item => {
-            if (item.id === itemIdToUpdate) {
-                return { ...item, logs: [...item.logs, newLog] };
-            }
-            return item;
-        }));
-    }
-    return id;
-  };
-
-  const updateLog = (logId: string, status: AgentLog['status'], details?: string, itemIdToUpdate?: string) => {
-    setLogs(prev => prev.map(log => 
-      log.id === logId ? { ...log, status, details: details || log.details } : log
-    ));
-    if (itemIdToUpdate) {
-        setProcessedItems(prev => prev.map(item => {
-            if (item.id === itemIdToUpdate) {
-                return {
-                    ...item,
-                    logs: item.logs.map(log => 
-                         log.id === logId ? { ...log, status, details: details || log.details } : log
-                    )
-                };
-            }
-            return item;
-        }));
-    }
-  };
-
-  // --------------------------------------------------------
-  // WORKER LOGIC
-  // --------------------------------------------------------
-  const processItemWorker = async (itemId: string, itemOriginal: TriviaFact, actionType: string = 'DEFAULT', feedback: string = '', currentOptimized: TriviaFact | null = null, existingTokenStats: TokenUsage | undefined = undefined, itemMode: SystemMode) => {
-    // Initialize with existing stats if any (Accumulation logic)
-    let itemTokenUsage: TokenUsage = existingTokenStats ? { ...existingTokenStats } : { promptTokens: 0, candidatesTokens: 0, totalTokens: 0, estimatedCost: 0 };
-    
-    const trackUsage = (usage: TokenUsage) => {
-       itemTokenUsage.promptTokens += usage.promptTokens;
-       itemTokenUsage.candidatesTokens += usage.candidatesTokens;
-       itemTokenUsage.totalTokens += usage.totalTokens;
-       itemTokenUsage.estimatedCost += usage.estimatedCost;
-       
-       setTotalTokenUsage(prev => ({
-           count: prev.count + usage.totalTokens,
-           cost: prev.cost + usage.estimatedCost
-       }));
-    };
-
-    // Update item status
-    const updateItemState = (updater: (p: ProcessedItem) => ProcessedItem) => {
-        setProcessedItems(prev => prev.map(p => p.id === itemId ? updater(p) : p));
-    };
-
-    try {
-      if (shouldStop) throw new Error("Stopped by user");
-      if (totalTokenUsage.count > tokenLimit) throw new Error("Token limit exceeded");
-
-      // ==========================================
-      // PATH 1: LOCALIZATION ENGINE
-      // ==========================================
-      if (itemMode === 'LOCALIZATION') {
-          addLog(`Worker`, `Starting Localization for ${language}...`, "working", undefined, itemId);
-          
-          let localizationFeedback = undefined;
-          
-          // HANDLE FEEDBACK ACTION FOR LOCALIZATION
-          if (actionType === 'REPROCESS_WITH_FEEDBACK') {
-              localizationFeedback = feedback;
-              addLog(`System`, `Refining localization with feedback: "${feedback}"`, "working", undefined, itemId);
-          }
-
-          let currentLocalizedFact: AgentResponseLocalization;
-
-          // SPECIAL HANDLING FOR REGENERATE LIES (Keep Current Fact, Translate Original Lies)
-          if (actionType === 'REGENERATE_LIES' && currentOptimized) {
-               addLog(`Worker`, `Re-localizing lies to fit current fact...`, "working", undefined, itemId);
-               updateItemState(p => ({ ...p, currentStep: "Cultural Bridge: Re-localizing lies..." }));
-               
-               const liesLogId = addLog("Cultural Bridge", `Adapting original English lies to current ${language} context...`, "working", undefined, itemId);
-               
-               // Use currentOptimized (Greek) Fact/Answer, but itemOriginal (English) Lies
-               const liesResult = await AgentService.localizeLies(
-                   currentOptimized.fact, 
-                   currentOptimized.answer, 
-                   itemOriginal.lies, 
-                   language
-               );
-               trackUsage(liesResult.usage);
-               updateLog(liesLogId, "success", "Lies adapted.", itemId);
-               
-               currentLocalizedFact = liesResult.data;
-          } 
-          else {
-              // STANDARD FLOW: Translate Everything
-              updateItemState(p => ({ ...p, currentStep: "Cultural Bridge: Adapting..." }));
-              const bridgeLogId = addLog("Cultural Bridge", `Translating to ${language} (Preserving BLANK)...`, "working", undefined, itemId);
-              
-              // Pass feedback if present
-              const bridgeResult = await AgentService.localizeContent(itemOriginal, language, localizationFeedback);
-              trackUsage(bridgeResult.usage);
-              updateLog(bridgeLogId, "success", "Translation complete.", itemId);
-              
-              currentLocalizedFact = bridgeResult.data;
-          }
-
-          // Step 2: The Linguist (Grammar Check)
-          updateItemState(p => ({ ...p, currentStep: "The Linguist: Checking grammar..." }));
-          const linguistLogId = addLog("The Linguist", "Checking case/gender agreement...", "working", undefined, itemId);
-          
-          const linguistResult = await AgentService.checkGrammar(currentLocalizedFact.fact, currentLocalizedFact.answer, currentLocalizedFact.lies, language);
-          trackUsage(linguistResult.usage);
-          
-          const score = linguistResult.data.score;
-          const issues = linguistResult.data.issues;
-
-          if (score < 9 && issues.length > 0) {
-               updateLog(linguistLogId, "working", `Found issues (Score ${score}). Fixing...`, itemId);
-               
-               // Step 3: The Fixer (Refinement)
-               updateItemState(p => ({ ...p, currentStep: "The Fixer: Repairing grammar..." }));
-               const fixerLogId = addLog("The Fixer", "Repairing grammar issues...", "working", undefined, itemId);
-               
-               const fixResult = await AgentService.fixTranslation(currentLocalizedFact.fact, currentLocalizedFact.answer, currentLocalizedFact.lies, issues, language);
-               trackUsage(fixResult.usage);
-               
-               currentLocalizedFact = fixResult.data;
-               updateLog(fixerLogId, "success", "Repairs complete.", itemId);
-               updateLog(linguistLogId, "success", `Issues resolved.`, itemId);
-          } else {
-               updateLog(linguistLogId, "success", `Grammar approved (Score ${score}).`, itemId);
-          }
-
-          const optimizedResult: TriviaFact = {
-              ...itemOriginal,
-              fact: currentLocalizedFact.fact,
-              answer: currentLocalizedFact.answer,
-              lies: currentLocalizedFact.lies,
-              category: itemOriginal.category
-          };
-
-          updateItemState(p => ({ 
-              ...p, 
-              optimized: optimizedResult, 
-              score: score, 
-              status: 'completed',
-              tokenStats: itemTokenUsage,
-              timestamp: actionType !== 'DEFAULT' ? Date.now() : p.timestamp,
-              pendingAction: undefined,
-              userFeedback: undefined
-          }));
-          
-          return;
-      }
-
-
-      // ==========================================
-      // PATH 2: CREATIVE OPTIMIZATION ENGINE
-      // ==========================================
-
-      let currentFactString = itemOriginal.fact;
-      let currentAnswer = itemOriginal.answer;
-      let finalScore = 0;
-      let triageAction = 'FULL_OPTIMIZE';
-
-      if (actionType === 'REGENERATE_LIES' && currentOptimized) {
-          addLog(`Worker`, `Regenerating lies only...`, "working", undefined, itemId);
-          currentFactString = currentOptimized.fact;
-          currentAnswer = currentOptimized.answer;
-          triageAction = 'GENERATE_LIES'; // Skip architect
-          finalScore = 0; // Will not score fact again
-      } 
-      else if (actionType === 'REPROCESS_WITH_FEEDBACK') {
-          addLog(`Worker`, `Reprocessing with user feedback...`, "working", undefined, itemId);
-          addLog(`System`, `User Guidance: "${feedback}"`, "working", undefined, itemId);
-          triageAction = 'FULL_OPTIMIZE';
-      }
-      else {
-          addLog(`Worker`, `Starting optimization process...`, "working", undefined, itemId);
-          updateItemState(p => ({ ...p, currentStep: "Triage: Analyzing..." }));
-          const triageLogId = addLog(`Triage`, "Analyzing...", "working", undefined, itemId);
-          
-          const triageResult = await AgentService.triageFact(itemOriginal, language);
-          trackUsage(triageResult.usage);
-          triageAction = triageResult.data.action;
-          
-          updateLog(triageLogId, "success", `Decision: ${triageAction}`, itemId);
-          updateItemState(p => ({ ...p, triageDecision: triageAction, tokenStats: itemTokenUsage }));
-      }
-
-      if (triageAction === 'KEEP_ALL' && actionType === 'DEFAULT') {
-          const result = { 
-              optimized: { ...itemOriginal }, 
-              score: 10, 
-              status: 'completed' as const, 
-              logs: [],
-              tokenStats: itemTokenUsage 
-          };
-          updateItemState(p => ({ ...p, ...result }));
-          addLog(`System`, `Item Perfect - Skipped.`, "success", undefined, itemId);
-          return;
-      }
-
-      if (triageAction === 'FULL_OPTIMIZE') {
-          let placementApproved = false;
-          let attempts = 0;
-          const MAX_ATTEMPTS = 3;
-          const attemptedPhrases: string[] = [];
-          let currentFeedback = actionType === 'REPROCESS_WITH_FEEDBACK' ? feedback : "";
-
-          while (!placementApproved && attempts < MAX_ATTEMPTS) {
-            if (shouldStop) throw new Error("Stopped by user");
-            attempts++;
-            
-            updateItemState(p => ({ ...p, currentStep: `Architect: Optimization ${attempts}...` }));
-            const archLogId = addLog(`Architect`, `Attempt ${attempts}...`, "working", undefined, itemId);
-
-            const archResult = await AgentService.optimizePlacement(
-                { ...itemOriginal, fact: currentFactString, answer: currentAnswer }, 
-                attemptedPhrases, 
-                currentFeedback,
-                language
-            );
-            trackUsage(archResult.usage);
-            updateLog(archLogId, "success", undefined, itemId);
-            updateItemState(p => ({ ...p, tokenStats: itemTokenUsage }));
-
-            const { newFact, newAnswer } = archResult.data;
-            attemptedPhrases.push(newFact);
-
-            updateItemState(p => ({ ...p, currentStep: `Critic: Scoring ${attempts}...` }));
-            const criticLogId = addLog(`Critic`, `Scoring ${attempts}...`, "working", undefined, itemId);
-            
-            const critiqueResult = await AgentService.critiquePlacement(newFact, newAnswer, language);
-            trackUsage(critiqueResult.usage);
-            finalScore = critiqueResult.data.score;
-            updateItemState(p => ({ ...p, tokenStats: itemTokenUsage }));
-
-            const fullFeedbackMsg = `Score: ${critiqueResult.data.score}\nFeedback: ${critiqueResult.data.feedback || "None"}`;
-
-            if (critiqueResult.data.score >= 7) {
-              placementApproved = true;
-              currentFactString = newFact;
-              currentAnswer = newAnswer;
-              updateLog(criticLogId, "success", `Approved! ${fullFeedbackMsg}`, itemId);
-            } else {
-               currentFeedback = critiqueResult.data.feedback || "";
-               if (attempts === MAX_ATTEMPTS) {
-                   currentFactString = newFact;
-                   currentAnswer = newAnswer;
-                   updateLog(criticLogId, "pending", `Max attempts reached. ${fullFeedbackMsg}`, itemId);
-               } else {
-                   updateLog(criticLogId, "retry", `Retrying... ${fullFeedbackMsg}`, itemId);
-               }
-            }
-          }
-      }
-
-      updateItemState(p => ({ ...p, currentStep: "Generator: Brainstorming..." }));
-      const genLogId = addLog(`Generator`, `Creating 8 raw options...`, "working", undefined, itemId);
-      
-      const genResult = await AgentService.generateRawLies(currentFactString, currentAnswer, itemOriginal.category, language);
-      trackUsage(genResult.usage);
-      
-      const rawLiesList = genResult.data.rawLies.map((l, i) => `${i+1}. ${l}`).join("\n");
-      updateLog(genLogId, "success", `Created ${genResult.data.rawLies.length} options:\n${rawLiesList}`, itemId);
-      updateItemState(p => ({ ...p, tokenStats: itemTokenUsage }));
-
-      updateItemState(p => ({ ...p, currentStep: "Editor: Trimming..." }));
-      const editLogId = addLog(`Editor`, `Refining to top 5 (<20 chars)...`, "working", undefined, itemId);
-
-      const editResult = await AgentService.refineLies(currentFactString, genResult.data.rawLies, language);
-      trackUsage(editResult.usage);
-      updateLog(editLogId, "success", undefined, itemId);
-      updateItemState(p => ({ ...p, tokenStats: itemTokenUsage }));
-      
-      const optimizedResult: TriviaFact = {
-        ...itemOriginal,
-        fact: currentFactString,
-        answer: currentAnswer,
-        lies: editResult.data.fixedLies
-      };
-
-      updateItemState(p => ({ 
-          ...p, 
-          optimized: optimizedResult, 
-          score: finalScore || 8, 
-          status: 'completed',
-          tokenStats: itemTokenUsage,
-          pendingAction: undefined,
-          userFeedback: undefined,
-          timestamp: actionType !== 'DEFAULT' ? Date.now() : p.timestamp
-      }));
-      addLog(`System`, `Item Complete.`, "success", undefined, itemId);
-      
-    } catch (error: any) {
-      console.error(error);
-      updateItemState(p => ({ 
-          ...p, 
-          status: 'failed', 
-          error: error.message, 
-          currentStep: 'Failed',
-          tokenStats: itemTokenUsage,
-          timestamp: actionType !== 'DEFAULT' ? Date.now() : p.timestamp
-      }));
-      addLog(`Error`, error.message, "failed", undefined, itemId);
-    }
-  };
-
-  // --------------------------------------------------------
-  // QUEUE MANAGER (The Conductor)
+  // BACKGROUND JOB POLLER
   // --------------------------------------------------------
   useEffect(() => {
-      if (!isProcessing || shouldStop) return;
+    if (!activeJobId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    setActiveTab('processing');
 
-      const activeCount = processedItems.filter(p => p.status === 'processing').length;
-      const pendingItem = processedItems.find(p => p.status === 'pending');
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/jobs/${activeJobId}?limit=1000`);
+        if (!response.ok) return;
+        const detail = (await response.json()) as JobDetail;
+        if (cancelled) return;
 
-      if (totalTokenUsage.count > tokenLimit) {
-        setShouldStop(true);
-        alert("Token limit reached. Stopping queue.");
-        return;
-      }
+        setJobInfo(detail.job);
+        setProcessedItems(mapJobItems(detail, systemMode));
+        setLogs(
+          detail.logs
+            .slice()
+            .reverse()
+            .map((log) => ({
+              id: String(log.id),
+              agentName: 'Job',
+              action: log.message,
+              status: log.level === 'error' ? 'failed' : 'success',
+              timestamp: Date.parse(log.created_at),
+            })),
+        );
+        setTotalTokenUsage({
+          count: detail.runs.reduce(
+            (sum, run) => sum + (run.prompt_tokens ?? 0) + (run.completion_tokens ?? 0),
+            0,
+          ),
+          cost: detail.job.cost_usd,
+        });
 
-      if (activeCount < concurrency && pendingItem) {
-          // Start the pending item
-          setProcessedItems(prev => prev.map(p => p.id === pendingItem.id ? { ...p, status: 'processing' } : p));
-          
-          processItemWorker(
-              pendingItem.id, 
-              pendingItem.original, 
-              pendingItem.pendingAction || 'DEFAULT', 
-              pendingItem.userFeedback || '', 
-              pendingItem.optimized,
-              pendingItem.tokenStats,
-              pendingItem.mode // Use the mode stored on the item
-          );
-      } else if (activeCount === 0 && !pendingItem && processedItems.length > 0 && processedItems.some(p => p.status === 'processing')) {
+        const terminal = ['done', 'paused', 'stopped', 'failed'].includes(detail.job.status);
+        if (terminal) {
           setIsProcessing(false);
-          playSuccessSound();
-      } else if (activeCount === 0 && !pendingItem && processedItems.length > 0 && isProcessing) {
-           setIsProcessing(false);
-           playSuccessSound();
+          if (detail.job.status === 'done') setActiveTab('ready');
+          if (timer) clearInterval(timer);
+        } else {
+          setIsProcessing(true);
+        }
+      } catch {
+        // Keep the last known state; the next poll retries.
       }
-  }, [processedItems, concurrency, isProcessing, shouldStop, totalTokenUsage, tokenLimit]);
+    };
 
+    void load();
+    timer = setInterval(() => void load(), 2_000);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [activeJobId, systemMode]);
 
   // --------------------------------------------------------
   // INITIALIZER
   // --------------------------------------------------------
-  const handleStartQueue = async () => {
-    const health = await fetch('/api/health')
-      .then((r) => r.json() as Promise<{ hasKey?: boolean; mock?: boolean; model?: string }>)
-      .catch(() => null);
-
-    if (!health) {
-      alert('The local Architect server is not running. Start it with `npm run dev`.');
-      return;
-    }
-    if (!health.hasKey && !health.mock) {
-      alert('DEEPSEEK_API_KEY is not set. Add it to .env.local, then restart the server.');
-      return;
-    }
-
-    setShouldStop(false);
-    setIsProcessing(true);
-    setLogs([]);
-    setActiveTab('processing');
-    
+  const handleRunAsJob = async () => {
     try {
-      const parseLogId = addLog("Parser", "Parsing input...", "working");
-      const newFacts = await AgentService.parseRawInput(inputText);
-      
-      const queueItems: ProcessedItem[] = newFacts.map((fact, index) => ({
-          id: Math.random().toString(36).substr(2, 9),
-          timestamp: Date.now() + index,
-          mode: systemMode, // ASSIGN CURRENT MODE
-          original: fact,
-          optimized: null,
-          score: null,
-          status: 'pending',
-          currentStep: 'Waiting in queue...',
-          logs: [],
-          triageDecision: undefined,
-          tokenStats: { promptTokens: 0, candidatesTokens: 0, totalTokens: 0, estimatedCost: 0 },
-          pendingAction: 'DEFAULT'
-      }));
-
-      if (queueItems.length === 0) {
-        updateLog(parseLogId, "success", "No items found.");
-        setIsProcessing(false);
-        return;
+      const input = JSON.parse(inputText) as unknown;
+      const response = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          input,
+          mode: systemMode === 'LOCALIZATION' ? 'localization' : 'optimization',
+          language,
+          effort,
+          maxCost,
+          concurrency,
+        }),
+      });
+      const data = (await response.json()) as { job?: { id: string }; error?: string };
+      if (!response.ok || !data.job) {
+        throw new Error(data.error ?? `Failed to create job (${response.status})`);
       }
-
-      updateLog(parseLogId, "success", `Added ${queueItems.length} items to queue (${systemMode}).`);
-      setProcessedItems(prev => [...prev, ...queueItems]);
-
-    } catch (error: any) {
-      addLog("System", "Parse Error", "failed", error.message);
-      setIsProcessing(false);
+      setActiveJobId(data.job.id);
+      setJobInfo(null);
+      setProcessedItems([]);
+      setLogs([]);
+      setActiveTab('processing');
+      setIsProcessing(true);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error));
     }
   };
+
+  const handleStop = async () => {
+    if (!activeJobId) return;
+    await fetch(`/api/jobs/${activeJobId}/stop`, { method: 'POST' });
+  };
+
+  const handleStartJob = async () => handleRunAsJob();
 
   // --------------------------------------------------------
   // UTILS & EXPORTS
   // --------------------------------------------------------
-  const handleItemUpdate = (id: string, newFact: TriviaFact) => {
-    setProcessedItems(prev => prev.map(item => 
-        item.id === id ? { ...item, optimized: newFact } : item
-    ));
-  };
-
-  const handleToggleReview = (id: string) => {
-    setProcessedItems(prev => prev.map(item => 
-        item.id === id ? { ...item, reviewed: !item.reviewed } : item
-    ));
-  };
-
-  const handleReprocessWithFeedback = (id: string, feedback: string) => {
-     setProcessedItems(prev => prev.map(item => {
-        if (item.id === id) {
-            return {
-                ...item,
-                status: 'pending',
-                logs: [], // Clear logs for new run
-                currentStep: 'Queued for optimization...',
-                reviewed: false,
-                pendingAction: 'REPROCESS_WITH_FEEDBACK',
-                userFeedback: feedback,
-                triageDecision: 'FULL_OPTIMIZE', // Set decision immediately for UI feedback
-                // Update Original to be the current optimized state (user accepted baseline)
-                original: item.optimized ? { ...item.optimized } : item.original
-            };
-        }
-        return item;
-    }));
-    setIsProcessing(true);
-    setShouldStop(false);
-  };
-
-  const handleRegenerateLies = (id: string) => {
-      setProcessedItems(prev => prev.map(item => {
-        if (item.id === id) {
-            const isLoc = item.mode === 'LOCALIZATION';
-            return {
-                ...item,
-                status: 'pending',
-                currentStep: 'Queued for lies...',
-                reviewed: false,
-                pendingAction: 'REGENERATE_LIES',
-                logs: [], 
-                triageDecision: 'GENERATE_LIES', 
-                // CRITICAL CHANGE: For Localization, keep original (English) as original. 
-                // For Optimization, update original to match the new rewritten fact.
-                original: isLoc ? item.original : (item.optimized ? { ...item.optimized } : item.original)
-            };
-        }
-        return item;
-    }));
-    setIsProcessing(true);
-    setShouldStop(false);
-  };
-
-  const handleRevert = (id: string) => {
-    setProcessedItems(prev => prev.map(item => {
-        if (item.id === id) {
-            return {
-                ...item,
-                status: 'completed',
-                optimized: { ...item.original }, // Deep copy
-                score: null,
-                triageDecision: 'KEEP_ALL',
-                currentStep: 'Reverted to original',
-                reviewed: false,
-                pendingAction: 'DEFAULT'
-            };
-        }
-        return item;
-    }));
-  };
-
-  const handleDiscard = (id: string) => {
-      setProcessedItems(prev => prev.filter(item => item.id !== id));
-  };
-
   const generateRawOutput = () => {
     const validItems = processedItems
         .filter(p => p.status === 'completed' && p.optimized)
@@ -686,16 +362,10 @@ function App() {
 
   // Filter based on Tab
   const tabItems = processedItems.filter(item => {
-      if (activeTab === 'reviewed') {
-          return item.reviewed;
-      }
       if (activeTab === 'processing') {
           return item.status === 'pending' || item.status === 'processing';
       }
-      if (activeTab === 'ready') {
-          return !item.reviewed && (item.status === 'completed' || item.status === 'failed');
-      }
-      return false;
+      return item.status === 'completed' || item.status === 'failed';
   });
 
   // Sort by Timestamp (FIFO)
@@ -770,8 +440,8 @@ function App() {
             <div className="flex items-center gap-4 bg-slate-900 border border-slate-800 rounded-lg px-4 py-2">
                 <div className="text-right">
                     <div className="text-[10px] text-slate-500 uppercase font-bold">Total Tokens</div>
-                    <div className={`font-mono font-bold ${totalTokenUsage.count > tokenLimit ? 'text-red-500' : 'text-neon-blue'}`}>
-                        {totalTokenUsage.count.toLocaleString()} / {tokenLimit.toLocaleString()}
+                    <div className="font-mono font-bold text-neon-blue">
+                        {totalTokenUsage.count.toLocaleString()}
                     </div>
                 </div>
                 <div className="h-8 w-px bg-slate-800"></div>
@@ -791,6 +461,34 @@ function App() {
         </div>
       </header>
 
+      {activeJobId && (
+        <div data-testid="job-banner" className="w-full bg-slate-900 border border-neon-blue/30 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs font-mono text-slate-300">
+            Background job <span className="text-neon-blue">{activeJobId.slice(0, 8)}</span>
+            {jobInfo && (
+              <>
+                {' '}· {jobInfo.status} · {jobInfo.done}/{jobInfo.total} · ${jobInfo.cost_usd.toFixed(5)}
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <a href="#jobs" className="text-xs font-bold text-neon-blue hover:text-white">
+              Open in Jobs →
+            </a>
+            <button
+              onClick={() => {
+                setActiveJobId(null);
+                setJobInfo(null);
+                setIsProcessing(false);
+              }}
+              className="text-[10px] text-slate-500 hover:text-white"
+            >
+              detach
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Settings Panel */}
       {showSettings && (
           <div className="w-full bg-slate-900 border border-slate-800 rounded-xl p-6 animate-in slide-in-from-top-2">
@@ -800,14 +498,29 @@ function App() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
                       <div>
-                          <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Safety Token Limit</label>
+                          <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Max cost (USD)</label>
                           <input 
                             type="number" 
-                            value={tokenLimit}
-                            onChange={(e) => setTokenLimit(parseInt(e.target.value))}
+                            min={0.01}
+                            step={0.01}
+                            value={maxCost}
+                            onChange={(e) => setMaxCost(Number(e.target.value))}
                             className="bg-slate-950 border border-slate-700 rounded p-2 text-white w-full focus:border-neon-purple outline-none"
                           />
-                          <p className="text-[10px] text-slate-500 mt-1">Stops batch processing if total session usage exceeds this amount.</p>
+                          <p className="text-[10px] text-slate-500 mt-1">The CLI pauses the job before the next item when it exceeds this.</p>
+                      </div>
+                      <div>
+                          <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Thinking effort</label>
+                          <select
+                            value={effort}
+                            onChange={(e) => setEffort(e.target.value as typeof effort)}
+                            className="bg-slate-950 border border-slate-700 rounded p-2 text-white w-full focus:border-neon-purple outline-none"
+                          >
+                            <option value="low">low</option>
+                            <option value="high">high</option>
+                            <option value="max">max</option>
+                          </select>
+                          <p className="text-[10px] text-slate-500 mt-1">DeepSeek Flash effort; high is the creative default.</p>
                       </div>
                       <div>
                           <label className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-2">
@@ -895,15 +608,15 @@ function App() {
             
             {isProcessing ? (
                 <button
-                    onClick={() => setShouldStop(true)}
+                    onClick={() => void handleStop()}
                     className="w-full bg-red-900/80 hover:bg-red-800 text-white font-bold py-3 px-6 rounded-lg transition-all flex items-center justify-center gap-2"
                 >
                     <StopCircle className="w-5 h-5" /> Stop Processing
                 </button>
             ) : (
                 <button
-                    onClick={handleStartQueue}
-                    disabled={totalTokenUsage.count >= tokenLimit}
+                    onClick={handleStartJob}
+                    disabled={isProcessing}
                     className={`w-full font-bold py-3 px-6 rounded-lg transition-all transform hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-white ${
                         systemMode === 'LOCALIZATION' 
                         ? 'bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500' 
@@ -911,11 +624,10 @@ function App() {
                     }`}
                 >
                     {systemMode === 'LOCALIZATION' ? <Globe className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
-                    {processedItems.length > 0 && processedItems.some(p => p.status === 'processing') 
-                        ? 'Queue Running...' 
-                        : processedItems.length > 0 ? 'Resume Queue' : systemMode === 'LOCALIZATION' ? 'Start Localization' : 'Start Optimization'}
+                    {isProcessing ? 'Job Running...' : 'Start background job'}
                 </button>
             )}
+
           </div>
 
           <AgentVisualizer logs={logs} />
@@ -934,7 +646,7 @@ function App() {
                     className={`text-sm font-bold pb-2 px-3 whitespace-nowrap transition-all relative flex items-center gap-2 ${activeTab === 'processing' ? 'text-white' : 'text-slate-500 hover:text-slate-300'}`}
                  >
                     <Clock className="w-4 h-4" />
-                    Queue / Processing ({processedItems.filter(p => p.status === 'pending' || p.status === 'processing').length})
+                    Processing ({processedItems.filter(p => p.status === 'pending' || p.status === 'processing').length})
                     {activeTab === 'processing' && <div className="absolute bottom-[-9px] left-0 w-full h-0.5 bg-neon-purple shadow-[0_0_8px_rgba(176,38,255,0.8)]"></div>}
                  </button>
                  <button 
@@ -942,16 +654,8 @@ function App() {
                     className={`text-sm font-bold pb-2 px-3 whitespace-nowrap transition-all relative flex items-center gap-2 ${activeTab === 'ready' ? 'text-white' : 'text-slate-500 hover:text-slate-300'}`}
                  >
                     <ListChecks className="w-4 h-4" />
-                    Ready for Review ({processedItems.filter(p => !p.reviewed && (p.status === 'completed' || p.status === 'failed')).length})
+                    Results ({processedItems.filter(p => !p.reviewed && (p.status === 'completed' || p.status === 'failed')).length})
                     {activeTab === 'ready' && <div className="absolute bottom-[-9px] left-0 w-full h-0.5 bg-neon-blue shadow-[0_0_8px_rgba(0,204,255,0.8)]"></div>}
-                 </button>
-                 <button 
-                    onClick={() => setActiveTab('reviewed')}
-                    className={`text-sm font-bold pb-2 px-3 whitespace-nowrap transition-all relative flex items-center gap-2 ${activeTab === 'reviewed' ? 'text-white' : 'text-slate-500 hover:text-slate-300'}`}
-                 >
-                    <CheckCircle className="w-4 h-4" />
-                    Reviewed ({processedItems.filter(p => p.reviewed).length})
-                    {activeTab === 'reviewed' && <div className="absolute bottom-[-9px] left-0 w-full h-0.5 bg-neon-green shadow-[0_0_8px_rgba(0,255,153,0.8)]"></div>}
                  </button>
               </div>
 
@@ -1009,9 +713,9 @@ function App() {
             {tabItems.length === 0 && (
                 <div className="flex flex-col items-center justify-center text-slate-600 border-2 border-dashed border-slate-800 rounded-xl min-h-[400px]">
                     <Layers className="w-12 h-12 mb-4 opacity-50" />
-                    <p className="text-lg">No items in {activeTab === 'processing' ? 'Queue' : activeTab === 'ready' ? 'Ready list' : 'Reviewed list'}</p>
+                    <p className="text-lg">No items in {activeTab === 'processing' ? 'Processing' : 'Results'}</p>
                     <p className="text-sm opacity-60">
-                        {activeTab === 'processing' ? 'Add facts to start.' : activeTab === 'ready' ? 'Wait for agents to finish.' : 'Review items to move them here.'}
+                        {activeTab === 'processing' ? 'Start a background job to see progress.' : 'No results yet.'}
                     </p>
                 </div>
             )}
@@ -1020,12 +724,13 @@ function App() {
                 <ResultCard 
                     key={item.id}
                     item={item}
-                    onUpdate={handleItemUpdate}
-                    onToggleReview={() => handleToggleReview(item.id)}
-                    onReprocessWithFeedback={(feedback) => handleReprocessWithFeedback(item.id, feedback)}
-                    onRegenerateLies={() => handleRegenerateLies(item.id)}
-                    onRevert={() => handleRevert(item.id)}
-                    onDiscard={() => handleDiscard(item.id)}
+                    readOnly
+                    onUpdate={() => {}}
+                    onToggleReview={() => {}}
+                    onReprocessWithFeedback={() => {}}
+                    onRegenerateLies={() => {}}
+                    onRevert={() => {}}
+                    onDiscard={() => {}}
                 />
             ))}
           </div>

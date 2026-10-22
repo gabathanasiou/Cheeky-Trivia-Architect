@@ -18,8 +18,9 @@ npm run smoke                   # one live end-to-end item
 npm run dev                     # API :4101 + UI :4100
 ```
 
-Open <http://127.0.0.1:4100>. Set `DEEPSEEK_MOCK=1` to run the UI with deterministic
-fixtures and no API calls.
+Open <http://127.0.0.1:4100>. The Optimizer creates a CLI job and renders its results;
+`/#jobs` is the job history and control panel. Set `DEEPSEEK_MOCK=1` to run with
+deterministic fixtures and no API calls.
 
 ## Commands
 
@@ -29,6 +30,8 @@ fixtures and no API calls.
 | `npm run start` | Build is served by the API on `:4100` |
 | `npm run smoke` | Live DeepSeek smoke: synthesis → blank → critic → lies |
 | `npm run cli -- book --limit 20` | Create a SQLite job and extract book facts |
+| `npm run cli -- optimize --input facts.json` | Create a manual job from a JSON array |
+| `npm run cli -- run <id>` | Run or resume any job |
 | `npm run cli -- status` | List jobs and their progress/cost |
 | `npm run cli -- items <id>` | Inspect a job's items |
 | `npm run cli -- resume <id>` | Reclaim stale items and continue |

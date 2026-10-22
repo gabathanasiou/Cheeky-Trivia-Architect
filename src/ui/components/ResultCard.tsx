@@ -11,9 +11,10 @@ interface ResultCardProps {
   onRegenerateLies: () => void;
   onRevert: () => void;
   onDiscard: () => void;
+  readOnly?: boolean;
 }
 
-export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggleReview, onReprocessWithFeedback, onRegenerateLies, onRevert, onDiscard }) => {
+export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggleReview, onReprocessWithFeedback, onRegenerateLies, onRevert, onDiscard, readOnly = false }) => {
   const { id, original, optimized, score, status, currentStep, logs, triageDecision, tokenStats, reviewed, mode } = item;
   
   const [formData, setFormData] = React.useState<TriviaFact | null>(null);
@@ -217,6 +218,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
                     <p className="text-red-300/50 text-xs font-mono">{item.error || "Check logs for details."}</p>
                 </div>
              </div>
+             {!readOnly && (
              <div className="flex items-center gap-2">
                 <button 
                     onClick={() => onReprocessWithFeedback("Retry after failure")}
@@ -231,6 +233,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
                     <Trash2 className="w-3 h-3" />
                 </button>
              </div>
+             )}
         </div>
         <AgentVisualizer logs={logs} compact />
     </div>
@@ -268,6 +271,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
             )}
          </div>
          
+         {!readOnly && (
          <div className="flex items-center gap-2">
              <button
                 onClick={onToggleReview}
@@ -307,6 +311,9 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
                  <BrainCircuit className="w-3.5 h-3.5" />
              </button>
 
+         </div>
+         )}
+         <div className="flex items-center gap-2">
              <button 
                onClick={copySingleRaw}
                title="Copy Raw Format"
@@ -315,21 +322,11 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
                 {copied ? <span className="text-neon-green text-[10px] uppercase font-bold">Copied</span> : <span className="text-[10px] uppercase font-bold group-hover:text-neon-blue">RAW</span>}
                 <Copy className={`w-3.5 h-3.5 ${copied ? 'text-neon-green' : ''}`} />
              </button>
-
-             <div className="h-4 w-px bg-slate-800 mx-1"></div>
-
-             <button 
-                onClick={onDiscard}
-                title="Discard Item"
-                className="p-1.5 text-slate-500 hover:text-red-500 bg-slate-900 border border-slate-800 rounded hover:border-red-900 hover:bg-red-950 transition-colors"
-             >
-                 <Trash2 className="w-3.5 h-3.5" />
-             </button>
          </div>
       </div>
 
       {/* FEEDBACK INPUT AREA */}
-      {showFeedbackInput && (
+      {showFeedbackInput && !readOnly && (
           <div className="bg-slate-900 border-b border-slate-800 p-4 animate-in slide-in-from-top-2">
               <label className="text-xs font-bold text-neon-blue mb-2 block flex items-center gap-2">
                   <BrainCircuit className="w-3 h-3" /> {isLocalization ? 'Translation Guidance' : 'Architect Feedback'}
@@ -397,7 +394,8 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
             
             <div className="space-y-2 relative">
                  <div className="flex justify-between items-center">
-                    <label className={`text-[10px] uppercase font-bold ${themeText} opacity-70`}>Fact (Editable)</label>
+                    <label className={`text-[10px] uppercase font-bold ${themeText} opacity-70`}>{readOnly ? 'Fact' : 'Fact (Editable)'}</label>
+                    {!readOnly && (
                     <button 
                         onClick={handleMakeBlank}
                         title="Convert selected text to blank and restore old answer to fact"
@@ -405,28 +403,31 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
                     >
                         <Scissors className="w-3 h-3" /> Swap Blank
                     </button>
+                    )}
                  </div>
                  <textarea 
                     ref={factTextareaRef}
                     className={`w-full bg-slate-950 text-white text-sm p-3 rounded border border-slate-700 focus:border-current outline-none transition-colors min-h-[80px] ${themeText}`}
                     value={formData.fact}
+                    readOnly={readOnly}
                     onChange={(e) => handleFactChange(e.target.value)}
                     placeholder="Enter fact with <BLANK>..."
                 />
             </div>
 
             <div className="space-y-2">
-                 <label className="text-[10px] uppercase font-bold text-neon-green/70">Answer (Editable)</label>
+                 <label className="text-[10px] uppercase font-bold text-neon-green/70">{readOnly ? 'Answer' : 'Answer (Editable)'}</label>
                  <input 
                     className="w-full bg-slate-950 text-neon-green text-sm p-2 rounded border border-slate-700 focus:border-neon-green outline-none transition-colors"
                     value={formData.answer}
+                    readOnly={readOnly}
                     onChange={(e) => handleAnswerChange(e.target.value)}
                  />
             </div>
 
             <div>
                  <label className="text-[10px] uppercase font-bold text-slate-400 mb-2 block">
-                    {isLocalization ? 'Localized Lies (Editable)' : 'Optimized Lies (Editable)'}
+                    {readOnly ? (isLocalization ? 'Localized Lies' : 'Optimized Lies') : (isLocalization ? 'Localized Lies (Editable)' : 'Optimized Lies (Editable)')}
                  </label>
                  <div className="grid grid-cols-1 gap-2">
                     {formData.lies.map((lie, i) => (
@@ -434,6 +435,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ item, onUpdate, onToggle
                             <span className="text-[10px] text-slate-600 font-mono w-4">{i+1}</span>
                             <input 
                                 value={lie}
+                                readOnly={readOnly}
                                 onChange={(e) => handleLieChange(i, e.target.value)}
                                 className="w-full bg-slate-950 text-slate-200 text-xs p-2 rounded border border-slate-700 focus:border-neon-blue outline-none transition-colors"
                             />

@@ -30,6 +30,9 @@ calibration check when prompts change.
 | Editor | 207 | 24 | $0.00004545 |
 | **Total** | **1,349** | **1,510** | **~$0.0011** |
 
+Full book pass (161 sections, extract + fun-score, facts only):
+**225 candidates, 30 sections skipped, $0.187** at off-peak rates.
+
 Thinking mode is the output-token driver. The generator's 911 completion tokens
 include reasoning; the editor (non-thinking) produced 24.
 

@@ -6,6 +6,8 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   checkGrammar,
   critiquePlacement,
@@ -24,6 +26,7 @@ import {
 } from '../core/agents/index';
 import { hasApiKey, isMockMode } from '../core/llm/deepseek';
 import { ArchitectDb } from '../core/db/index';
+import type { TriviaFact } from '../core/types';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = Number(process.env.PORT ?? 4101);
@@ -45,6 +48,92 @@ app.get('/api/health', (_req, res) => {
 
 app.get('/api/jobs', (_req, res) => {
   res.json({ jobs: db.listJobs() });
+});
+
+function spawnJob(jobId: string, options: { maxCost: number; concurrency: number }): void {
+  const child = spawn(
+    process.platform === 'win32' ? 'npm.cmd' : 'npm',
+    [
+      'run',
+      'cli',
+      '--',
+      'run',
+      jobId,
+      '--max-cost',
+      String(options.maxCost),
+      '--concurrency',
+      String(options.concurrency),
+    ],
+    {
+      cwd: ROOT,
+      detached: true,
+      stdio: 'ignore',
+      env: process.env,
+    },
+  );
+
+  child.on('error', (error) => {
+    db.addLog(jobId, 'error', `failed to spawn CLI: ${error.message}`);
+    db.setJobStatus(jobId, 'failed');
+  });
+  child.unref();
+}
+
+app.post('/api/jobs', (req, res) => {
+  const body = req.body as {
+    input?: TriviaFact[];
+    mode?: 'optimization' | 'localization';
+    language?: string;
+    effort?: 'low' | 'high' | 'max';
+    maxCost?: number;
+    concurrency?: number;
+    full?: boolean;
+  };
+
+  if (!Array.isArray(body.input) || body.input.length === 0) {
+    res.status(400).json({ error: 'Expected a non-empty input array' });
+    return;
+  }
+  if (body.input.length > 1_000) {
+    res.status(400).json({ error: 'Too many facts (max 1000 per job)' });
+    return;
+  }
+
+  const facts = body.input
+    .filter((item) => item && typeof item.fact === 'string' && typeof item.answer === 'string')
+    .map((item) => ({
+      fact: item.fact,
+      answer: item.answer,
+      category: typeof item.category === 'string' ? item.category : 'General',
+      lies: Array.isArray(item.lies) ? item.lies.filter((lie) => typeof lie === 'string') : [],
+    }));
+
+  if (facts.length === 0) {
+    res.status(400).json({ error: 'No valid facts in input' });
+    return;
+  }
+
+  const mode = body.mode === 'localization' ? 'localization' : 'optimization';
+  const language = typeof body.language === 'string' && body.language.trim() ? body.language.trim() : 'English';
+  const effort = body.effort === 'low' || body.effort === 'max' ? body.effort : 'high';
+  const maxCost = Number.isFinite(body.maxCost) ? Number(body.maxCost) : 1;
+  const concurrency = Number.isFinite(body.concurrency) ? Math.max(1, Math.min(10, Number(body.concurrency))) : 2;
+  const out = `data/exports/optimized-${language.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.jsonl`;
+
+  const jobId = db.createJob({
+    source: 'input',
+    effort,
+    items: facts.map((fact, index) => ({
+      sourceId: `fact-${index}`,
+      contentHash: createHash('sha256').update(JSON.stringify(fact)).digest('hex'),
+      payload: fact,
+    })),
+    options: { mode, language, full: body.full !== false, out },
+  });
+  db.addLog(jobId, 'info', `created from UI with ${facts.length} facts`);
+
+  spawnJob(jobId, { maxCost, concurrency });
+  res.status(201).json({ job: db.getJob(jobId) });
 });
 
 app.get('/api/jobs/:id', (req, res) => {
@@ -74,6 +163,17 @@ app.post('/api/jobs/:id/pause', (req, res) => {
   }
   db.requestPause(req.params.id);
   db.setJobStatus(req.params.id, 'paused');
+  res.json({ job: db.getJob(req.params.id) });
+});
+
+app.post('/api/jobs/:id/resume', (req, res) => {
+  const job = db.getJob(req.params.id);
+  if (!job) {
+    res.status(404).json({ error: 'Job not found' });
+    return;
+  }
+  db.clearPause(req.params.id);
+  spawnJob(req.params.id, { maxCost: 1, concurrency: 2 });
   res.json({ job: db.getJob(req.params.id) });
 });
 

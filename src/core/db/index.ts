@@ -10,6 +10,7 @@ export interface JobRow {
   status: 'pending' | 'running' | 'paused' | 'stopped' | 'done' | 'failed';
   stage: string | null;
   effort: string;
+  options_json: string | null;
   total: number;
   done: number;
   failed: number;
@@ -60,6 +61,7 @@ export class ArchitectDb {
     }
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
+    this.db.pragma('busy_timeout = 5000');
     this.db.pragma('foreign_keys = ON');
     this.migrate();
   }
@@ -126,15 +128,25 @@ export class ArchitectDb {
       CREATE INDEX IF NOT EXISTS idx_runs_job ON runs(job_id);
       CREATE INDEX IF NOT EXISTS idx_logs_job ON logs(job_id, id);
     `);
+
+    const columns = this.db.prepare(`PRAGMA table_info(jobs)`).all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === 'options_json')) {
+      this.db.exec(`ALTER TABLE jobs ADD COLUMN options_json TEXT`);
+    }
   }
 
-  createJob(input: { source: string; effort: string; items: NewItem[] }): string {
+  createJob(input: {
+    source: string;
+    effort: string;
+    items: NewItem[];
+    options?: unknown;
+  }): string {
     const id = randomUUID();
     const timestamp = now();
 
     const insertJob = this.db.prepare(
-      `INSERT INTO jobs (id, source, status, effort, total, created_at, updated_at)
-       VALUES (?, ?, 'pending', ?, ?, ?, ?)`,
+      `INSERT INTO jobs (id, source, status, effort, total, options_json, created_at, updated_at)
+       VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)`,
     );
     const insertItem = this.db.prepare(
       `INSERT INTO items (id, job_id, source_id, content_hash, status, payload_json, updated_at)
@@ -142,7 +154,15 @@ export class ArchitectDb {
     );
 
     this.db.transaction(() => {
-      insertJob.run(id, input.source, input.effort, input.items.length, timestamp, timestamp);
+      insertJob.run(
+        id,
+        input.source,
+        input.effort,
+        input.items.length,
+        input.options === undefined ? null : JSON.stringify(input.options),
+        timestamp,
+        timestamp,
+      );
       for (const item of input.items) {
         insertItem.run(
           randomUUID(),

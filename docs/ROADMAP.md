@@ -25,17 +25,6 @@ retired to `docs/ROADMAP-ARCHIVE.md` as **one line**; git history keeps the narr
 
 ---
 
-## 3. Fact model + fact gate — synthesis contract, validation, dedup (`[~]`)
-
-- **Request:** Add a stage that turns a source row (multiple-choice question, book
-  anecdote, etc.) into one standalone declarative fact before blank placement.
-- **Approach:** `synthesizeFact` agent; `Fact` type (`id`, `statement`, `answer`,
-  `category`, `source`, `confidence`, `scores`); deterministic gates (answer appears in
-  statement, no question mark, no `None of these`, length bounds); normalized dedup.
-- **Verify:** unit tests for each gate; a 200-row OpenTriviaQA pilot and a 20-section
-  book pilot with recorded yield.
-- **Relations:** depends on 2; blocks 4 and 10.
-
 ## 4. Book phase 1 — Gutenberg 46644 extraction (`[~]`)
 
 - **Request:** Use *Invention and Discovery: Curious Facts and Characteristic Sketches*
@@ -48,27 +37,7 @@ retired to `docs/ROADMAP-ARCHIVE.md` as **one line**; git history keeps the narr
   `data/exports/book-en.jsonl` is valid.
 - **Relations:** depends on 3; no licence gate (public domain).
 
-## 5. Batch CLI — SQLite job store, resume, concurrency, budget (`[~]`)
-
-- **Request:** A headless runner for thousands of items that survives crashes and does
-  not re-pay for completed work.
-- **Approach:** `better-sqlite3` in WAL mode (`jobs`, `items`, `runs`, `logs`);
-  `p-limit` worker pool; `--source book`, `--limit`, `--effort low|high|max`,
-  `--max-cost`, `--dry-run`, `resume`; content-hash idempotency.
-- **Verify:** integration test with the mock LLM; kill mid-job and resume with zero
-  duplicate work; budget cap stops cleanly.
-- **Relations:** depends on 2, 3.
-
-## 6. Browser monitor — job dashboard, SSE, pause/stop (`[~]`)
-
-- **Request:** Keep the browser UI, but make it a live monitor for CLI jobs instead of
-  a localStorage queue.
-- **Approach:** local Express API reads the same SQLite DB; `GET /api/jobs`,
-  `GET /api/jobs/:id`, SSE progress stream; pause/stop flags; cost/stage/error panels.
-- **Verify:** Playwright smoke against a seeded job; SSE shows progress without refresh.
-- **Relations:** depends on 5.
-
-## 7. Review UI — approve/reject/edit, score filters (`[ ]`)
+## 7. Review UI — approve/reject/edit, score filters (`[~]`)
 
 - **Request:** Make human review fast enough for thousands of candidates.
 - **Approach:** item table with filters (source, category, score, status), keyboard

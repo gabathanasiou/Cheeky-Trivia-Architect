@@ -77,6 +77,15 @@ A question is rejected after generation when:
 - the truth is a pure number/date (warning; reject for the default bank)
 - language/schema validation fails
 
+## Manual/input jobs
+
+The same funnel also runs on pasted facts (`npm run cli -- optimize --input facts.json`).
+The Optimizer page creates the job via `POST /api/jobs`; the server spawns the CLI.
+The page then polls the same SQLite job and renders its result cards, so the terminal,
+the Optimizer and `/#jobs` share one queue, one progress stream and one pause/stop
+path. There is no in-browser executor. A fact with fewer than five lies is forced through lie generation rather than
+`KEEP_ALL`.
+
 ## Prompts
 
 Live in `src/core/agents/prompts.ts`. Keep the long rules in the **system** message

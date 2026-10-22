@@ -10,7 +10,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "start": "NODE_ENV=production PORT=4100 tsx src/server/index.ts",
-    "start:test": "NODE_ENV=test PORT=4102 DEEPSEEK_MOCK=1 tsx src/server/index.ts",
+    "start:test": "rm -f data/test-architect.db* && NODE_ENV=test PORT=4102 DEEPSEEK_MOCK=1 ARCHITECT_DB=./data/test-architect.db tsx src/server/index.ts",
     "cli": "tsx src/cli/index.ts",
     "smoke": "tsx scripts/smoke.ts",
     "test": "vitest",
