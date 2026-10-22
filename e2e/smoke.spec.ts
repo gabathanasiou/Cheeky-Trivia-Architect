@@ -15,3 +15,8 @@ test('runs a mock batch and surfaces completed items', async ({ page }) => {
     page.getByRole('button', { name: /ready for review \(2\)/i }),
   ).toBeVisible({ timeout: 20_000 });
 });
+
+test('shows the jobs dashboard', async ({ page }) => {
+  await page.goto('/#jobs');
+  await expect(page.getByRole('heading', { name: 'JOBS', exact: true })).toBeVisible();
+});

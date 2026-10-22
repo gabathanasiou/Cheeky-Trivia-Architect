@@ -732,6 +732,12 @@ function App() {
             <p className="text-slate-400 font-mono text-sm mt-2 flex items-center gap-2">
             Multi-Agent Batch Optimization System
             </p>
+            <a
+              href="#jobs"
+              className="inline-flex items-center gap-1 text-xs font-bold text-neon-blue hover:text-white mt-3"
+            >
+              Jobs dashboard →
+            </a>
         </div>
 
         {/* MODE SWITCHER */}
